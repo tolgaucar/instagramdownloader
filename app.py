@@ -1,7 +1,7 @@
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 import instaloader
@@ -24,6 +24,9 @@ import sys
 import redis
 import random
 from pathlib import Path
+import aiohttp
+import io
+import requests
 
 # Logging konfigürasyonu
 def setup_logging():
@@ -362,7 +365,7 @@ L = instaloader.Instaloader(
     compress_json=False
 )
 
-async def retry_with_backoff(func, max_retries=3, initial_delay=5):
+async def retry_with_backoff(func, max_retries=5, initial_delay=10):
     """Exponential backoff ile retry mekanizması"""
     for attempt in range(max_retries):
         try:
@@ -373,7 +376,7 @@ async def retry_with_backoff(func, max_retries=3, initial_delay=5):
                 
             # Hata mesajını kontrol et
             error_msg = str(e).lower()
-            if "unauthorized" in error_msg or "please wait" in error_msg:
+            if any(msg in error_msg for msg in ["unauthorized", "please wait", "failed", "not found"]):
                 # Yeni cookie dene
                 try:
                     new_cookies = cookie_manager.get_next_cookie()
@@ -384,7 +387,7 @@ async def retry_with_backoff(func, max_retries=3, initial_delay=5):
                     logger.error(f"Cookie değiştirme hatası: {str(cookie_error)}")
             
             # Exponential backoff ile bekle
-            delay = initial_delay * (2 ** attempt) + random.uniform(0, 1)
+            delay = initial_delay * (2 ** attempt) + random.uniform(1, 5)
             logger.warning(f"Retry attempt {attempt + 1}/{max_retries}, waiting {delay:.2f} seconds...")
             await asyncio.sleep(delay)
 
@@ -419,11 +422,39 @@ async def download_media_from_instagram(url: str, client_id: str) -> dict:
         # Retry mekanizması ile download işlemini gerçekleştir
         async def download_attempt():
             loader = await loader_pool.get_loader()
-            post = instaloader.Post.from_shortcode(loader.context, shortcode)
             
-            if post.is_video:
-                return post.video_url, 'mp4'
-            return post.url, 'jpg'
+            # Session kontrolü
+            if not loader.context._session:
+                logger.warning("Session not found, creating new session")
+                loader.context._session = instaloader.instaloadercontext.get_anonymous_session()
+            
+            try:
+                # Önce post metadata'sını al
+                post = instaloader.Post.from_shortcode(loader.context, shortcode)
+                
+                # Post erişilebilir mi kontrol et
+                if not post or not hasattr(post, 'url'):
+                    raise instaloader.exceptions.InstaloaderException("Post metadata is incomplete")
+                
+                # Cookie'lerin hala geçerli olup olmadığını kontrol et
+                if not loader.context.is_logged_in:
+                    logger.warning("Session expired, trying with new cookies")
+                    new_cookies = cookie_manager.get_next_cookie()
+                    loader_pool.load_cookies_to_loader(loader, new_cookies)
+                    # Post'u tekrar al
+                    post = instaloader.Post.from_shortcode(loader.context, shortcode)
+                
+                if post.is_video:
+                    if not post.video_url:
+                        raise instaloader.exceptions.InstaloaderException("Video URL not found")
+                    return post.video_url, 'mp4'
+                else:
+                    if not post.url:
+                        raise instaloader.exceptions.InstaloaderException("Image URL not found")
+                    return post.url, 'jpg'
+            except Exception as e:
+                logger.error(f"Download attempt failed: {str(e)}")
+                raise
         
         try:
             media_url, media_type = await retry_with_backoff(download_attempt)
@@ -568,6 +599,42 @@ def get_shortcode_from_url(url: str) -> str:
         if match := re.search(pattern, url):
             return match.group(1)
     return None
+
+@app.get('/api/download-media')
+async def download_media(request: Request):
+    try:
+        media_url = request.query_params.get('url')
+        if not media_url:
+            raise HTTPException(status_code=400, detail='Media URL is required')
+
+        # Medya dosyasını indir
+        async with aiohttp.ClientSession() as session:
+            async with session.get(media_url) as response:
+                if response.status != 200:
+                    raise HTTPException(status_code=400, detail='Failed to download media')
+
+                # Dosya adını belirle
+                filename = media_url.split('/')[-1]
+                if not filename:
+                    content_type = response.headers.get('content-type', '')
+                    ext = 'mp4' if 'video' in content_type else 'jpg'
+                    filename = f'download.{ext}'
+
+                # Medyayı memory buffer'a al
+                buffer = io.BytesIO(await response.read())
+                buffer.seek(0)
+
+                return StreamingResponse(
+                    buffer,
+                    media_type=response.headers.get('content-type', 'application/octet-stream'),
+                    headers={
+                        'Content-Disposition': f'attachment; filename="{filename}"'
+                    }
+                )
+
+    except Exception as e:
+        logger.error(f"Media download error: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":
     import uvicorn

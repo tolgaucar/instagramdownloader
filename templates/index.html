@@ -90,10 +90,8 @@
 						>
 							<p class="font-bold">Başarılı!</p>
 							<p>
-								İndirme işlemi tamamlandı.
-								<a href="#" id="download-link" class="underline"
-									>İndirmek için tıklayın</a
-								>
+								İndirme işlemi başladı. Eğer indirme başlamazsa
+								<a href="#" id="download-link" class="underline">buraya tıklayın</a>
 							</p>
 						</div>
 					</div>
@@ -120,6 +118,17 @@
 			const downloadLink = document.getElementById("download-link");
 			const errorMessage = document.getElementById("error-message");
 
+			function downloadMedia(url) {
+				window.location.href = `/api/download-media?url=${encodeURIComponent(url)}`;
+			}
+
+			// Manuel indirme linki için click event'i
+			downloadLink.addEventListener("click", (e) => {
+				e.preventDefault();
+				const url = downloadLink.href;
+				downloadMedia(url);
+			});
+
 			downloadBtn.addEventListener("click", async () => {
 				const url = urlInput.value;
 				const type = document.querySelector('input[name="type"]:checked').value;
@@ -145,8 +154,8 @@
 
 						if (status === "SUCCESS") {
 							if (result.success) {
-								// Medya URL'sini al ve yeni sekmede aç
-								window.open(result.media_url, '_blank');
+								// Medyayı otomatik indir
+								downloadMedia(result.media_url);
 								statusDiv.classList.add("hidden");
 								resultDiv.classList.remove("hidden");
 								downloadLink.href = result.media_url;
