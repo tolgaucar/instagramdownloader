@@ -25,6 +25,11 @@ import redis
 import random
 from pathlib import Path
 
+# Request modeli
+class DownloadRequest(BaseModel):
+    url: str
+    type: Optional[str] = "post"  # post, reel, story, igtv
+
 # Redis bağlantısı
 redis_client = redis.Redis(
     host='localhost',
@@ -522,10 +527,6 @@ app.mount("/downloads", StaticFiles(directory="downloads"), name="downloads")
 @app.get("/")
 async def read_root(request: Request):
     return templates.TemplateResponse("index.html", {"request": request})
-
-class DownloadRequest(BaseModel):
-    url: str
-    type: Optional[str] = "post"  # post, reel, story, igtv
 
 def get_shortcode_from_url(url: str) -> str:
     """URL'den shortcode çıkar"""
