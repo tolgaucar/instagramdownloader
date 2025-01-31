@@ -514,6 +514,32 @@ async def test_redis():
             "error": str(e)
         }
 
+# Templates ve static dosyalar için klasörler
+templates = Jinja2Templates(directory="templates")
+os.makedirs("downloads", exist_ok=True)
+app.mount("/downloads", StaticFiles(directory="downloads"), name="downloads")
+
+@app.get("/")
+async def read_root(request: Request):
+    return templates.TemplateResponse("index.html", {"request": request})
+
+class DownloadRequest(BaseModel):
+    url: str
+    type: Optional[str] = "post"  # post, reel, story, igtv
+
+def get_shortcode_from_url(url: str) -> str:
+    """URL'den shortcode çıkar"""
+    patterns = [
+        r'/p/([^/]+)/',
+        r'/reel/([^/]+)/',
+        r'/tv/([^/]+)/',
+    ]
+    
+    for pattern in patterns:
+        if match := re.search(pattern, url):
+            return match.group(1)
+    return None
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000) 
