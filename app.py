@@ -531,6 +531,34 @@ async def rate_limit_middleware(request: Request, call_next):
     response = await call_next(request)
     return response
 
+@app.get("/api/redis-test")
+async def test_redis():
+    try:
+        # Test value ekle
+        test_key = "test:connection"
+        redis_client.set(test_key, "OK", ex=60)  # 60 saniyelik TTL
+        
+        # Değeri oku
+        value = redis_client.get(test_key)
+        
+        # Rate limit sayacını oku
+        rate_limits = redis_client.keys("rate_limit:*")
+        rate_limit_counts = {
+            key: redis_client.zcard(key)
+            for key in rate_limits
+        }
+        
+        return {
+            "status": "Redis is working",
+            "test_value": value,
+            "rate_limits": rate_limit_counts
+        }
+    except Exception as e:
+        return {
+            "status": "Redis error",
+            "error": str(e)
+        }
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000) 
