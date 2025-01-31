@@ -33,8 +33,6 @@ ENV/
 # Project specific
 logs/
 downloads/
-instagram_cookies.json
-.env
 
 # OS specific
 .DS_Store

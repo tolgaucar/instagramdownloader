@@ -21,27 +21,38 @@ import logging
 import logging.handlers
 import traceback
 import sys
+import redis
 
-# Rate limiting için
-class RateLimiter:
-    def __init__(self, max_requests: int, time_window: int):
+# Redis bağlantısı
+redis_client = redis.Redis(
+    host='localhost',
+    port=6379,
+    db=0,
+    decode_responses=True
+)
+
+# Rate limiting için Redis kullanan sınıf
+class RedisRateLimiter:
+    def __init__(self, max_requests: int = 100, time_window: int = 60):
+        self.redis = redis_client
         self.max_requests = max_requests
-        self.time_window = time_window  # saniye
-        self.requests = defaultdict(list)
+        self.time_window = time_window
         
     def is_allowed(self, client_id: str) -> bool:
-        now = time.time()
+        current = int(time.time())
+        key = f"rate_limit:{client_id}"
         
-        # Eski istekleri temizle
-        self.requests[client_id] = [req_time for req_time in self.requests[client_id] 
-                                  if now - req_time <= self.time_window]
+        pipe = self.redis.pipeline()
         
-        # İstek sayısını kontrol et
-        if len(self.requests[client_id]) >= self.max_requests:
-            return False
-            
-        self.requests[client_id].append(now)
-        return True
+        # Eski kayıtları temizle ve yeni istek ekle
+        pipe.zremrangebyscore(key, 0, current - self.time_window)
+        pipe.zadd(key, {str(current): current})
+        pipe.zcard(key)
+        pipe.expire(key, self.time_window)
+        
+        _, _, request_count, _ = pipe.execute()
+        
+        return request_count <= self.max_requests
 
 # Task yönetimi için
 class TaskManager:
@@ -73,7 +84,7 @@ class TaskManager:
 
 # Global instances
 load_dotenv()
-rate_limiter = RateLimiter(max_requests=100, time_window=60)  # 100 istek/dakika
+rate_limiter = RedisRateLimiter(max_requests=100, time_window=60)
 task_manager = TaskManager()
 
 # Instaloader instance pool
@@ -506,6 +517,19 @@ async def get_status(task_id: str):
         "status": "SUCCESS" if task["status"] == "completed" else "PROCESSING",
         "result": task["result"]
     }
+
+@app.middleware("http")
+async def rate_limit_middleware(request: Request, call_next):
+    client_id = request.client.host
+    
+    if not rate_limiter.is_allowed(client_id):
+        raise HTTPException(
+            status_code=429,
+            detail="Too many requests. Please try again later."
+        )
+    
+    response = await call_next(request)
+    return response
 
 if __name__ == "__main__":
     import uvicorn
