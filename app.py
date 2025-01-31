@@ -22,6 +22,8 @@ import logging.handlers
 import traceback
 import sys
 import redis
+import random
+from pathlib import Path
 
 # Redis bağlantısı
 redis_client = redis.Redis(
@@ -295,105 +297,63 @@ L = instaloader.Instaloader(
     compress_json=False
 )
 
-def load_cookies_from_file():
-    """Cookie dosyasından Instagram oturumunu yükle"""
-    try:
-        if os.path.exists('instagram_cookies.json'):
-            with open('instagram_cookies.json', 'r') as f:
-                cookies = json.load(f)
-                
-            if all(key in cookies for key in ['sessionid', 'csrftoken', 'ds_user_id']):
-                # Oturumu temizle
-                L.context._session.cookies.clear()
-                
-                # Cookie'leri yükle
-                for key, value in cookies.items():
-                    L.context._session.cookies.set(
-                        key,
-                        value,
-                        domain='.instagram.com',
-                        path='/'
-                    )
-                
-                # Kullanıcı ID'sini ayarla
-                L.context.user_id = cookies.get('ds_user_id')
-                L.context.username = INSTAGRAM_USERNAME
-                
-                # Test connection - sadece cookie kontrolü yap
-                if L.context.is_logged_in:
-                    print("Cookie ile giriş başarılı!")
-                    return True
-                else:
-                    print("Cookie geçersiz.")
-                    return False
-                    
-    except Exception as e:
-        print(f"Cookie yükleme hatası: {str(e)}")
-    return False
-
-def instagram_login():
-    """Instagram'a giriş yap"""
-    try:
-        # Cookie dosyasından giriş yapmayı dene
-        if load_cookies_from_file():
-            return True
-            
-        print("\n=== Instagram Giriş Talimatları ===")
-        print("1. Tarayıcınızda Instagram'a giriş yapın")
-        print("2. DevTools'u açın (Safari -> Develop -> Show Web Inspector)")
-        print("3. Storage -> Cookies -> instagram.com'a gidin")
-        print("4. Aşağıdaki cookie değerlerini kopyalayıp instagram_cookies.json dosyasına kaydedin:")
-        print("   - sessionid")
-        print("   - csrftoken")
-        print("   - ds_user_id")
-        print("   - mid (opsiyonel)")
-        print("   - ig_did (opsiyonel)")
-        print("\nÖrnek format:")
-        print("""
-{
-    "sessionid": "your-session-id",
-    "csrftoken": "your-csrf-token",
-    "ds_user_id": "your-user-id",
-    "mid": "your-mid",
-    "ig_did": "your-ig-did"
-}
-        """)
-        print("\nDosyayı kaydettikten sonra uygulamayı yeniden başlatın.")
-        return False
-            
-    except Exception as e:
-        print(f"Instagram giriş hatası: {str(e)}")
-        return False
-
-# Instagram'a giriş yap
-if not instagram_login():
-    print("Instagram bağlantısı kurulamadı. Cookie dosyasını oluşturun ve tekrar deneyin.")
-
-# Templates ve static dosyalar için klasörler
-templates = Jinja2Templates(directory="templates")
-os.makedirs("downloads", exist_ok=True)
-app.mount("/downloads", StaticFiles(directory="downloads"), name="downloads")
-
-@app.get("/")
-async def read_root(request: Request):
-    return templates.TemplateResponse("index.html", {"request": request})
-
-class DownloadRequest(BaseModel):
-    url: str
-    type: Optional[str] = "post"  # post, reel, story, igtv
-
-def get_shortcode_from_url(url: str) -> str:
-    """URL'den shortcode çıkar"""
-    patterns = [
-        r'/p/([^/]+)/',
-        r'/reel/([^/]+)/',
-        r'/tv/([^/]+)/',
-    ]
+class CookieManager:
+    def __init__(self):
+        self.cookies = []
+        self.current_index = 0
+        self.load_all_cookies()
     
-    for pattern in patterns:
-        if match := re.search(pattern, url):
-            return match.group(1)
-    return None
+    def load_all_cookies(self):
+        # cookies klasöründeki tüm .json dosyalarını yükle
+        cookie_dir = Path("cookies")
+        if not cookie_dir.exists():
+            cookie_dir.mkdir(exist_ok=True)
+            
+        for cookie_file in cookie_dir.glob("*.json"):
+            try:
+                with open(cookie_file, 'r') as f:
+                    cookie_data = json.load(f)
+                    self.cookies.append({
+                        'file': cookie_file,
+                        'data': cookie_data
+                    })
+            except Exception as e:
+                logger.error(f"Cookie dosyası yüklenemedi {cookie_file}: {str(e)}")
+    
+    def get_next_cookie(self):
+        if not self.cookies:
+            raise Exception("Kullanılabilir cookie bulunamadı")
+            
+        cookie = self.cookies[self.current_index]
+        self.current_index = (self.current_index + 1) % len(self.cookies)
+        return cookie['data']
+
+cookie_manager = CookieManager()
+
+async def retry_with_backoff(func, max_retries=3, initial_delay=5):
+    """Exponential backoff ile retry mekanizması"""
+    for attempt in range(max_retries):
+        try:
+            return await func()
+        except instaloader.exceptions.InstaloaderException as e:
+            if attempt == max_retries - 1:
+                raise
+                
+            # Hata mesajını kontrol et
+            error_msg = str(e).lower()
+            if "unauthorized" in error_msg or "please wait" in error_msg:
+                # Yeni cookie dene
+                try:
+                    new_cookies = cookie_manager.get_next_cookie()
+                    loader = await loader_pool.get_loader()
+                    loader.context.load_cookies_from_dict(new_cookies)
+                except Exception as cookie_error:
+                    logger.error(f"Cookie değiştirme hatası: {str(cookie_error)}")
+            
+            # Exponential backoff ile bekle
+            delay = initial_delay * (2 ** attempt) + random.uniform(0, 1)
+            logger.warning(f"Retry attempt {attempt + 1}/{max_retries}, waiting {delay:.2f} seconds...")
+            await asyncio.sleep(delay)
 
 async def download_media_from_instagram(url: str, client_id: str) -> dict:
     """Instagram'dan medya URL'lerini al"""
@@ -423,25 +383,17 @@ async def download_media_from_instagram(url: str, client_id: str) -> dict:
             )
             return {"success": False, "error": "Geçerli bir Instagram URL'si değil"}
         
-        try:
-            # Pool'dan loader al
+        # Retry mekanizması ile download işlemini gerçekleştir
+        async def download_attempt():
             loader = await loader_pool.get_loader()
-            
-            logger.debug(
-                f"Processing Instagram URL: {url}, shortcode: {shortcode}",
-                extra=extra
-            )
-            
-            # Post'u al
             post = instaloader.Post.from_shortcode(loader.context, shortcode)
             
-            # Video veya resim URL'sini al
             if post.is_video:
-                media_url = post.video_url
-                media_type = 'mp4'
-            else:
-                media_url = post.url
-                media_type = 'jpg'
+                return post.video_url, 'mp4'
+            return post.url, 'jpg'
+        
+        try:
+            media_url, media_type = await retry_with_backoff(download_attempt)
             
             # İşlem süresini hesapla
             response_time = (datetime.now() - start_time).total_seconds() * 1000
@@ -472,7 +424,10 @@ async def download_media_from_instagram(url: str, client_id: str) -> dict:
                 extra=extra
             )
             
-            return {"success": False, "error": f"Instagram hatası: {error_msg}"}
+            return {
+                "success": False, 
+                "error": f"Instagram hatası: {error_msg}. Lütfen birkaç dakika bekleyip tekrar deneyin."
+            }
                 
     except Exception as e:
         # İşlem süresini hesapla
