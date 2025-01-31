@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+		<title>instatest - Instagram Media Downloader</title>
+		<link
+			href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css"
+			rel="stylesheet"
+		/>
+		<script src="https://unpkg.com/axios/dist/axios.min.js"></script>
+	</head>
+	<body class="bg-gray-100 min-h-screen">
+		<div class="container mx-auto px-4 py-8">
+			<div class="max-w-3xl mx-auto">
+				<h1 class="text-4xl font-bold text-center mb-2 text-purple-600">
+					test
+				</h1>
+				<p class="text-center text-gray-600 mb-8">Instagram Media Downloader</p>
+				
+				<div class="bg-white rounded-lg shadow-lg p-6">
+					<div class="mb-6">
+						<label
+							class="block text-gray-700 text-sm font-bold mb-2"
+							for="instagram-url"
+						>
+							Instagram URL'si
+						</label>
+						<input
+							type="text"
+							id="instagram-url"
+							class="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-600"
+							placeholder="https://www.instagram.com/p/..."
+						/>
+					</div>
+					
+					<div class="mb-6">
+						<label class="block text-gray-700 text-sm font-bold mb-2">Medya Tipi</label>
+						<div class="flex space-x-4">
+							<label class="inline-flex items-center">
+								<input
+									type="radio"
+									name="type"
+									value="post"
+									checked
+									class="form-radio text-purple-600"
+								/>
+								<span class="ml-2">Post</span>
+							</label>
+							<label class="inline-flex items-center">
+								<input
+									type="radio"
+									name="type"
+									value="reel"
+									class="form-radio text-purple-600"
+								/>
+								<span class="ml-2">Reel</span>
+							</label>
+							<label class="inline-flex items-center">
+								<input
+									type="radio"
+									name="type"
+									value="story"
+									class="form-radio text-purple-600"
+								/>
+								<span class="ml-2">Story</span>
+							</label>
+						</div>
+					</div>
+
+					<button
+						id="download-btn"
+						class="w-full bg-purple-600 text-white py-2 px-4 rounded-lg hover:bg-purple-700 transition duration-200"
+					>
+						İndir
+					</button>
+
+					<div id="status" class="mt-4 hidden">
+						<div class="animate-pulse flex space-x-4">
+							<div class="flex-1 space-y-4 py-1">
+								<div class="h-4 bg-purple-200 rounded w-3/4"></div>
+							</div>
+						</div>
+					</div>
+
+					<div id="result" class="mt-4 hidden">
+						<div
+							class="bg-green-100 border-l-4 border-green-500 text-green-700 p-4"
+							role="alert"
+						>
+							<p class="font-bold">Başarılı!</p>
+							<p>
+								İndirme işlemi tamamlandı.
+								<a href="#" id="download-link" class="underline"
+									>İndirmek için tıklayın</a
+								>
+							</p>
+						</div>
+					</div>
+
+					<div id="error" class="mt-4 hidden">
+						<div
+							class="bg-red-100 border-l-4 border-red-500 text-red-700 p-4"
+							role="alert"
+						>
+							<p class="font-bold">Hata</p>
+							<p id="error-message"></p>
+						</div>
+					</div>
+				</div>
+			</div>
+		</div>
+
+		<script>
+			const downloadBtn = document.getElementById("download-btn");
+			const urlInput = document.getElementById("instagram-url");
+			const statusDiv = document.getElementById("status");
+			const resultDiv = document.getElementById("result");
+			const errorDiv = document.getElementById("error");
+			const downloadLink = document.getElementById("download-link");
+			const errorMessage = document.getElementById("error-message");
+
+			downloadBtn.addEventListener("click", async () => {
+				const url = urlInput.value;
+				const type = document.querySelector('input[name="type"]:checked').value;
+
+				if (!url) {
+					showError("Lütfen bir Instagram URL'si girin");
+					return;
+				}
+
+				try {
+					statusDiv.classList.remove("hidden");
+					resultDiv.classList.add("hidden");
+					errorDiv.classList.add("hidden");
+					downloadBtn.disabled = true;
+
+					const response = await axios.post("/api/download", { url, type });
+					const taskId = response.data.task_id;
+
+					// Durumu kontrol et
+					const checkStatus = async () => {
+						const statusResponse = await axios.get(`/api/status/${taskId}`);
+						const { status, result } = statusResponse.data;
+
+						if (status === "SUCCESS") {
+							if (result.success) {
+								// Medya URL'sini al ve yeni sekmede aç
+								window.open(result.media_url, '_blank');
+								statusDiv.classList.add("hidden");
+								resultDiv.classList.remove("hidden");
+								downloadLink.href = result.media_url;
+							} else {
+								showError(result.error);
+							}
+							downloadBtn.disabled = false;
+						} else if (status === "FAILURE") {
+							showError("İndirme başarısız oldu. Lütfen tekrar deneyin.");
+							downloadBtn.disabled = false;
+						} else {
+							setTimeout(checkStatus, 1000);
+						}
+					};
+
+					checkStatus();
+				} catch (error) {
+					showError(error.response?.data?.detail || "Bir hata oluştu");
+					downloadBtn.disabled = false;
+				}
+			});
+
+			function showError(message) {
+				errorMessage.textContent = message;
+				statusDiv.classList.add("hidden");
+				resultDiv.classList.add("hidden");
+				errorDiv.classList.remove("hidden");
+			}
+		</script>
+	</body>
+</html>
