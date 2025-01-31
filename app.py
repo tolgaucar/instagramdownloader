@@ -25,10 +25,155 @@ import redis
 import random
 from pathlib import Path
 
+# Logging konfigürasyonu
+def setup_logging():
+    # Log klasörü oluştur
+    os.makedirs('logs', exist_ok=True)
+    
+    # Ana logger'ı yapılandır
+    logger = logging.getLogger('instatest')
+    logger.setLevel(logging.DEBUG)
+    
+    # Formatlayıcı - varsayılan değerler ekle
+    formatter = logging.Formatter(
+        '%(asctime)s [%(levelname)s] %(message)s '
+        '[ip:%(client_ip)-15s] [endpoint:%(endpoint)-20s] '
+        '[response_time:%(response_time).2fms] '
+        '[status_code:%(status_code)s]',
+        defaults={
+            'client_ip': '-',
+            'endpoint': '-',
+            'response_time': 0.0,
+            'status_code': 0
+        }
+    )
+    
+    # Dosya handler'ları
+    # Genel loglar
+    general_handler = logging.handlers.TimedRotatingFileHandler(
+        'logs/instatest.log',
+        when='midnight',
+        interval=1,
+        backupCount=30  # 30 günlük log tut
+    )
+    general_handler.setFormatter(formatter)
+    general_handler.setLevel(logging.INFO)
+    
+    # Hata logları
+    error_handler = logging.handlers.RotatingFileHandler(
+        'logs/error.log',
+        maxBytes=10*1024*1024,  # 10MB
+        backupCount=5
+    )
+    error_handler.setFormatter(formatter)
+    error_handler.setLevel(logging.ERROR)
+    
+    # Debug logları
+    debug_handler = logging.handlers.RotatingFileHandler(
+        'logs/debug.log',
+        maxBytes=10*1024*1024,  # 10MB
+        backupCount=3
+    )
+    debug_handler.setFormatter(formatter)
+    debug_handler.setLevel(logging.DEBUG)
+    
+    # Console handler
+    console_handler = logging.StreamHandler(sys.stdout)
+    console_handler.setFormatter(formatter)
+    console_handler.setLevel(logging.INFO)
+    
+    # Handler'ları logger'a ekle
+    logger.addHandler(general_handler)
+    logger.addHandler(error_handler)
+    logger.addHandler(debug_handler)
+    logger.addHandler(console_handler)
+    
+    return logger
+
+# Logger'ı oluştur
+logger = setup_logging()
+
 # Request modeli
 class DownloadRequest(BaseModel):
     url: str
     type: Optional[str] = "post"  # post, reel, story, igtv
+
+# Instaloader instance pool
+class InstaloaderPool:
+    def __init__(self, pool_size: int = 5):
+        self.pool = []
+        self.pool_size = pool_size
+        self.current = 0
+        self.lock = asyncio.Lock()
+        
+        for _ in range(pool_size):
+            loader = instaloader.Instaloader(
+                download_video_thumbnails=False,
+                save_metadata=False,
+                download_geotags=False,
+                download_comments=False,
+                post_metadata_txt_pattern="",
+                max_connection_attempts=3,
+                filename_pattern="{shortcode}",
+                quiet=True,
+                sleep=True  # Rate limiting'i aç
+            )
+            self.pool.append(loader)
+            
+    def load_cookies_to_loader(self, loader, cookies):
+        """Cookie'leri Instaloader instance'ına yükle"""
+        # Mevcut cookie'leri temizle
+        loader.context._session.cookies.clear()
+        
+        # Yeni cookie'leri ekle
+        for key, value in cookies.items():
+            loader.context._session.cookies.set(
+                key,
+                value,
+                domain='.instagram.com',
+                path='/'
+            )
+        
+        # Kullanıcı ID'sini ayarla
+        if 'ds_user_id' in cookies:
+            loader.context.user_id = cookies['ds_user_id']
+            
+    async def get_loader(self):
+        async with self.lock:
+            loader = self.pool[self.current]
+            self.current = (self.current + 1) % self.pool_size
+            return loader
+
+class CookieManager:
+    def __init__(self):
+        self.cookies = []
+        self.current_index = 0
+        self.load_all_cookies()
+    
+    def load_all_cookies(self):
+        # cookies klasöründeki tüm .json dosyalarını yükle
+        cookie_dir = Path("cookies")
+        if not cookie_dir.exists():
+            cookie_dir.mkdir(exist_ok=True)
+            
+        for cookie_file in cookie_dir.glob("*.json"):
+            try:
+                with open(cookie_file, 'r') as f:
+                    cookie_data = json.load(f)
+                    self.cookies.append({
+                        'file': cookie_file,
+                        'data': cookie_data
+                    })
+            except Exception as e:
+                logger.error(f"Cookie dosyası yüklenemedi {cookie_file}: {str(e)}")
+    
+    def get_next_cookie(self):
+        if not self.cookies:
+            raise Exception("Kullanılabilir cookie bulunamadı")
+            
+        cookie = self.cookies[self.current_index]
+        self.current_index = (self.current_index + 1) % len(self.cookies)
+        return cookie['data']
 
 # Redis bağlantısı
 redis_client = redis.Redis(
@@ -107,52 +252,6 @@ try:
 except Exception as e:
     logger.error(f"Initial cookie loading failed: {str(e)}")
 
-# Instaloader instance pool
-class InstaloaderPool:
-    def __init__(self, pool_size: int = 5):
-        self.pool = []
-        self.pool_size = pool_size
-        self.current = 0
-        self.lock = asyncio.Lock()
-        
-        for _ in range(pool_size):
-            loader = instaloader.Instaloader(
-                download_video_thumbnails=False,
-                save_metadata=False,
-                download_geotags=False,
-                download_comments=False,
-                post_metadata_txt_pattern="",
-                max_connection_attempts=3,
-                filename_pattern="{shortcode}",
-                quiet=True,
-                sleep=True  # Rate limiting'i aç
-            )
-            self.pool.append(loader)
-            
-    def load_cookies_to_loader(self, loader, cookies):
-        """Cookie'leri Instaloader instance'ına yükle"""
-        # Mevcut cookie'leri temizle
-        loader.context._session.cookies.clear()
-        
-        # Yeni cookie'leri ekle
-        for key, value in cookies.items():
-            loader.context._session.cookies.set(
-                key,
-                value,
-                domain='.instagram.com',
-                path='/'
-            )
-        
-        # Kullanıcı ID'sini ayarla
-        if 'ds_user_id' in cookies:
-            loader.context.user_id = cookies['ds_user_id']
-            
-    async def get_loader(self):
-        async with self.lock:
-            loader = self.pool[self.current]
-            self.current = (self.current + 1) % self.pool_size
-            return loader
-
 # Periyodik temizlik işlemi
 async def periodic_cleanup():
     while True:
@@ -171,74 +270,6 @@ app.add_middleware(
 )
 app.add_middleware(GZipMiddleware, minimum_size=1000)
 app.add_middleware(TrustedHostMiddleware, allowed_hosts=["*"])
-
-# Logging konfigürasyonu
-def setup_logging():
-    # Log klasörü oluştur
-    os.makedirs('logs', exist_ok=True)
-    
-    # Ana logger'ı yapılandır
-    logger = logging.getLogger('instatest')
-    logger.setLevel(logging.DEBUG)
-    
-    # Formatlayıcı - varsayılan değerler ekle
-    formatter = logging.Formatter(
-        '%(asctime)s [%(levelname)s] %(message)s '
-        '[ip:%(client_ip)-15s] [endpoint:%(endpoint)-20s] '
-        '[response_time:%(response_time).2fms] '
-        '[status_code:%(status_code)s]',
-        defaults={
-            'client_ip': '-',
-            'endpoint': '-',
-            'response_time': 0.0,
-            'status_code': 0
-        }
-    )
-    
-    # Dosya handler'ları
-    # Genel loglar
-    general_handler = logging.handlers.TimedRotatingFileHandler(
-        'logs/instatest.log',
-        when='midnight',
-        interval=1,
-        backupCount=30  # 30 günlük log tut
-    )
-    general_handler.setFormatter(formatter)
-    general_handler.setLevel(logging.INFO)
-    
-    # Hata logları
-    error_handler = logging.handlers.RotatingFileHandler(
-        'logs/error.log',
-        maxBytes=10*1024*1024,  # 10MB
-        backupCount=5
-    )
-    error_handler.setFormatter(formatter)
-    error_handler.setLevel(logging.ERROR)
-    
-    # Debug logları
-    debug_handler = logging.handlers.RotatingFileHandler(
-        'logs/debug.log',
-        maxBytes=10*1024*1024,  # 10MB
-        backupCount=3
-    )
-    debug_handler.setFormatter(formatter)
-    debug_handler.setLevel(logging.DEBUG)
-    
-    # Console handler
-    console_handler = logging.StreamHandler(sys.stdout)
-    console_handler.setFormatter(formatter)
-    console_handler.setLevel(logging.INFO)
-    
-    # Handler'ları logger'a ekle
-    logger.addHandler(general_handler)
-    logger.addHandler(error_handler)
-    logger.addHandler(debug_handler)
-    logger.addHandler(console_handler)
-    
-    return logger
-
-# Logger'ı oluştur
-logger = setup_logging()
 
 # Middleware for request logging
 @app.middleware("http")
@@ -330,37 +361,6 @@ L = instaloader.Instaloader(
     download_videos=True,
     compress_json=False
 )
-
-class CookieManager:
-    def __init__(self):
-        self.cookies = []
-        self.current_index = 0
-        self.load_all_cookies()
-    
-    def load_all_cookies(self):
-        # cookies klasöründeki tüm .json dosyalarını yükle
-        cookie_dir = Path("cookies")
-        if not cookie_dir.exists():
-            cookie_dir.mkdir(exist_ok=True)
-            
-        for cookie_file in cookie_dir.glob("*.json"):
-            try:
-                with open(cookie_file, 'r') as f:
-                    cookie_data = json.load(f)
-                    self.cookies.append({
-                        'file': cookie_file,
-                        'data': cookie_data
-                    })
-            except Exception as e:
-                logger.error(f"Cookie dosyası yüklenemedi {cookie_file}: {str(e)}")
-    
-    def get_next_cookie(self):
-        if not self.cookies:
-            raise Exception("Kullanılabilir cookie bulunamadı")
-            
-        cookie = self.cookies[self.current_index]
-        self.current_index = (self.current_index + 1) % len(self.cookies)
-        return cookie['data']
 
 async def retry_with_backoff(func, max_retries=3, initial_delay=5):
     """Exponential backoff ile retry mekanizması"""
