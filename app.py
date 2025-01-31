@@ -93,6 +93,19 @@ class TaskManager:
 load_dotenv()
 rate_limiter = RedisRateLimiter(max_requests=100, time_window=60)
 task_manager = TaskManager()
+cookie_manager = CookieManager()
+
+# Instaloader pool'unu oluştur ve cookie'leri yükle
+loader_pool = InstaloaderPool()
+
+# İlk cookie'yi yükle
+try:
+    initial_cookies = cookie_manager.get_next_cookie()
+    for loader in loader_pool.pool:
+        loader_pool.load_cookies_to_loader(loader, initial_cookies)
+    logger.info("Initial cookies loaded successfully")
+except Exception as e:
+    logger.error(f"Initial cookie loading failed: {str(e)}")
 
 # Instaloader instance pool
 class InstaloaderPool:
@@ -116,13 +129,29 @@ class InstaloaderPool:
             )
             self.pool.append(loader)
             
+    def load_cookies_to_loader(self, loader, cookies):
+        """Cookie'leri Instaloader instance'ına yükle"""
+        # Mevcut cookie'leri temizle
+        loader.context._session.cookies.clear()
+        
+        # Yeni cookie'leri ekle
+        for key, value in cookies.items():
+            loader.context._session.cookies.set(
+                key,
+                value,
+                domain='.instagram.com',
+                path='/'
+            )
+        
+        # Kullanıcı ID'sini ayarla
+        if 'ds_user_id' in cookies:
+            loader.context.user_id = cookies['ds_user_id']
+            
     async def get_loader(self):
         async with self.lock:
             loader = self.pool[self.current]
             self.current = (self.current + 1) % self.pool_size
             return loader
-
-loader_pool = InstaloaderPool()
 
 # Periyodik temizlik işlemi
 async def periodic_cleanup():
@@ -333,8 +362,6 @@ class CookieManager:
         self.current_index = (self.current_index + 1) % len(self.cookies)
         return cookie['data']
 
-cookie_manager = CookieManager()
-
 async def retry_with_backoff(func, max_retries=3, initial_delay=5):
     """Exponential backoff ile retry mekanizması"""
     for attempt in range(max_retries):
@@ -351,7 +378,8 @@ async def retry_with_backoff(func, max_retries=3, initial_delay=5):
                 try:
                     new_cookies = cookie_manager.get_next_cookie()
                     loader = await loader_pool.get_loader()
-                    loader.context.load_cookies_from_dict(new_cookies)
+                    loader_pool.load_cookies_to_loader(loader, new_cookies)
+                    logger.info(f"Yeni cookie yüklendi: {loader.context.user_id}")
                 except Exception as cookie_error:
                     logger.error(f"Cookie değiştirme hatası: {str(cookie_error)}")
             
