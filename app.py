@@ -405,44 +405,68 @@ async def download_media_from_instagram(url: str, client_id: str) -> dict:
     try:
         # Rate limit kontrolü
         if not rate_limiter.is_allowed(client_id):
-            logger.warning(
-                f"Rate limit exceeded for client: {client_id}",
-                extra=extra
-            )
+            logger.warning(f"Rate limit exceeded for client: {client_id}", extra=extra)
             return {"success": False, "error": "Rate limit aşıldı. Lütfen biraz bekleyin."}
         
         shortcode = get_shortcode_from_url(url)
         if not shortcode:
-            logger.warning(
-                f"Invalid Instagram URL: {url}",
-                extra=extra
-            )
+            logger.warning(f"Invalid Instagram URL: {url}", extra=extra)
             return {"success": False, "error": "Geçerli bir Instagram URL'si değil"}
         
         # Retry mekanizması ile download işlemini gerçekleştir
         async def download_attempt():
             loader = await loader_pool.get_loader()
             
-            # Session kontrolü
-            if not loader.context._session:
-                logger.warning("Session not found, creating new session")
-                loader.context._session = instaloader.instaloadercontext.get_anonymous_session()
-            
             try:
-                # Önce post metadata'sını al
+                # Story URL'si kontrolü
+                if shortcode.startswith('story_'):
+                    parts = shortcode.split('_', 2)  # En fazla 2 kere böl
+                    if len(parts) != 3:
+                        raise instaloader.exceptions.InstaloaderException("Invalid story URL format")
+                    
+                    username = parts[1]
+                    story_id = parts[2]
+                    logger.debug(f"Attempting to fetch story - username: {username}, id: {story_id}")
+                    
+                    try:
+                        # Profil aramayı yeni API ile yap
+                        profile_url = f"https://i.instagram.com/api/v1/users/web_profile_info/?username={username}"
+                        headers = {
+                            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko)',
+                            'X-IG-App-ID': '936619743392459',  # Instagram web app ID
+                            'X-Requested-With': 'XMLHttpRequest'
+                        }
+                        
+                        async with aiohttp.ClientSession() as session:
+                            async with session.get(profile_url, headers=headers, cookies=loader.context._session.cookies) as response:
+                                if response.status == 200:
+                                    data = await response.json()
+                                    if 'data' in data and 'user' in data['data']:
+                                        user_id = data['data']['user']['id']
+                                        logger.debug(f"Found user ID: {user_id} for username: {username}")
+                                        
+                                        # Story'leri al
+                                        stories = loader.get_stories([user_id])
+                                        for story in stories:
+                                            for item in story.get_items():
+                                                logger.debug(f"Checking story item: {item.mediaid}")
+                                                if str(item.mediaid) == story_id:
+                                                    if item.is_video:
+                                                        return item.video_url, 'mp4'
+                                                    return item.url, 'jpg'
+                                    
+                        raise instaloader.exceptions.InstaloaderException(f"Could not fetch stories for {username}")
+                            
+                    except Exception as e:
+                        logger.error(f"Story fetch error: {str(e)}")
+                        raise instaloader.exceptions.InstaloaderException(f"Failed to fetch stories: {str(e)}")
+                
+                # Normal post işlemi
                 post = instaloader.Post.from_shortcode(loader.context, shortcode)
                 
                 # Post erişilebilir mi kontrol et
                 if not post or not hasattr(post, 'url'):
                     raise instaloader.exceptions.InstaloaderException("Post metadata is incomplete")
-                
-                # Cookie'lerin hala geçerli olup olmadığını kontrol et
-                if not loader.context.is_logged_in:
-                    logger.warning("Session expired, trying with new cookies")
-                    new_cookies = cookie_manager.get_next_cookie()
-                    loader_pool.load_cookies_to_loader(loader, new_cookies)
-                    # Post'u tekrar al
-                    post = instaloader.Post.from_shortcode(loader.context, shortcode)
                 
                 if post.is_video:
                     if not post.video_url:
@@ -452,59 +476,21 @@ async def download_media_from_instagram(url: str, client_id: str) -> dict:
                     if not post.url:
                         raise instaloader.exceptions.InstaloaderException("Image URL not found")
                     return post.url, 'jpg'
+                    
             except Exception as e:
                 logger.error(f"Download attempt failed: {str(e)}")
                 raise
-        
-        try:
-            media_url, media_type = await retry_with_backoff(download_attempt)
-            
-            # İşlem süresini hesapla
-            response_time = (datetime.now() - start_time).total_seconds() * 1000
-            extra['response_time'] = response_time
-            
-            logger.info(
-                f"Successfully processed Instagram URL: {url}",
-                extra=extra
-            )
-            
-            return {
-                "success": True,
-                "media_url": media_url,
-                "media_type": media_type
-            }
-            
-        except instaloader.exceptions.InstaloaderException as e:
-            error_msg = str(e)
-            
-            # İşlem süresini hesapla
-            response_time = (datetime.now() - start_time).total_seconds() * 1000
-            extra['response_time'] = response_time
-            extra['status_code'] = 400
-            
-            logger.error(
-                f"Instagram error for URL {url}: {error_msg}\n"
-                f"Traceback: {traceback.format_exc()}",
-                extra=extra
-            )
-            
-            return {
-                "success": False, 
-                "error": f"Instagram hatası: {error_msg}. Lütfen birkaç dakika bekleyip tekrar deneyin."
-            }
                 
+        media_url, media_type = await retry_with_backoff(download_attempt)
+        
+        return {
+            "success": True,
+            "media_url": media_url,
+            "media_type": media_type
+        }
+            
     except Exception as e:
-        # İşlem süresini hesapla
-        response_time = (datetime.now() - start_time).total_seconds() * 1000
-        extra['response_time'] = response_time
-        extra['status_code'] = 500
-        
-        logger.error(
-            f"General error for URL {url}: {str(e)}\n"
-            f"Traceback: {traceback.format_exc()}",
-            extra=extra
-        )
-        
+        logger.error(f"Error processing URL {url}: {str(e)}")
         return {"success": False, "error": str(e)}
 
 @app.post("/api/download")
@@ -589,15 +575,33 @@ async def read_root(request: Request):
 
 def get_shortcode_from_url(url: str) -> str:
     """URL'den shortcode çıkar"""
-    patterns = [
-        r'/p/([^/]+)/',
-        r'/reel/([^/]+)/',
-        r'/tv/([^/]+)/',
-    ]
+    # URL'yi temizle
+    url = url.split('?')[0].rstrip('/')
     
-    for pattern in patterns:
+    # Debug log ekle
+    logger.debug(f"Processing URL: {url}")
+    
+    # Story URL'si için özel kontrol
+    story_match = re.search(r'instagram\.com/stories/([^/]+)/(\d+)', url)
+    if story_match:
+        username = story_match.group(1)
+        story_id = story_match.group(2)
+        logger.debug(f"Story match found - username: {username}, id: {story_id}")
+        return f"story_{username}_{story_id}"
+    
+    # Diğer URL tipleri için kontrol
+    patterns = {
+        'post': r'/p/([^/]+)',
+        'reel': r'/reel/([^/]+)',
+        'igtv': r'/tv/([^/]+)',
+    }
+    
+    for media_type, pattern in patterns.items():
         if match := re.search(pattern, url):
+            logger.debug(f"Matched pattern: {media_type} - {pattern}")
             return match.group(1)
+    
+    logger.warning(f"No pattern matched for URL: {url}")
     return None
 
 @app.get('/api/download-media')
@@ -634,6 +638,119 @@ async def download_media(request: Request):
 
     except Exception as e:
         logger.error(f"Media download error: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/stories/{username}")
+async def get_user_stories(username: str):
+    """Kullanıcının story'lerini listele"""
+    try:
+        loader = await loader_pool.get_loader()
+        
+        # Cookie'leri yükle
+        try:
+            new_cookies = cookie_manager.get_next_cookie()
+            loader_pool.load_cookies_to_loader(loader, new_cookies)
+            logger.debug(f"Cookies loaded for story fetch - user_id: {loader.context.user_id}")
+            
+            # Instagram API'sine direkt istek at
+            headers = {
+                'authority': 'www.instagram.com',
+                'accept': '*/*',
+                'accept-language': 'en-US,en;q=0.9',
+                'dpr': '2',
+                'referer': 'https://www.instagram.com/',
+                'sec-ch-prefers-color-scheme': 'dark',
+                'sec-ch-ua': '"Not_A Brand";v="8", "Chromium";v="120"',
+                'sec-ch-ua-full-version-list': '"Not_A Brand";v="8.0.0.0", "Chromium";v="120.0.6099.199"',
+                'sec-ch-ua-mobile': '?0',
+                'sec-ch-ua-model': '""',
+                'sec-ch-ua-platform': '"macOS"',
+                'sec-ch-ua-platform-version': '"13.0.0"',
+                'sec-fetch-dest': 'empty',
+                'sec-fetch-mode': 'cors',
+                'sec-fetch-site': 'same-origin',
+                'viewport-width': '1512',
+                'x-asbd-id': '129477',
+                'x-csrftoken': new_cookies.get('csrftoken', ''),
+                'x-ig-app-id': '936619743392459',
+                'x-ig-www-claim': '0',
+                'x-requested-with': 'XMLHttpRequest',
+                'user-agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+            }
+            
+            cookies_dict = {k: v for k, v in new_cookies.items()}
+            
+            # Önce user ID'yi al
+            async with aiohttp.ClientSession() as session:
+                user_lookup_url = f"https://www.instagram.com/api/v1/users/web_profile_info/?username={username}"
+                async with session.get(user_lookup_url, headers=headers, cookies=cookies_dict) as response:
+                    if response.status == 200:
+                        user_data = await response.json()
+                        if 'data' in user_data and 'user' in user_data['data']:
+                            user_id = user_data['data']['user']['id']
+                            logger.debug(f"Found user ID: {user_id}")
+                            
+                            # Story'leri al
+                            stories_url = f"https://www.instagram.com/api/v1/feed/user/{user_id}/story/"
+                            async with session.get(stories_url, headers=headers, cookies=cookies_dict) as story_response:
+                                if story_response.status == 200:
+                                    story_data = await story_response.json()
+                                    logger.debug(f"Story response: {story_data}")
+                                    
+                                    if 'items' not in story_data or not story_data['items']:
+                                        return {
+                                            "success": True,
+                                            "username": username,
+                                            "stories": [],
+                                            "message": "Kullanıcının aktif story'si bulunmuyor"
+                                        }
+                                    
+                                    story_list = []
+                                    for item in story_data['items']:
+                                        story_info = {
+                                            "id": item['id'],
+                                            "type": "video" if item.get('video_versions') else "photo",
+                                            "timestamp": datetime.fromtimestamp(item['taken_at']).isoformat(),
+                                        }
+                                        
+                                        if item.get('video_versions'):
+                                            story_info["url"] = item['video_versions'][0]['url']
+                                            story_info["thumbnail"] = item['image_versions2']['candidates'][0]['url']
+                                        else:
+                                            story_info["url"] = item['image_versions2']['candidates'][0]['url']
+                                            story_info["thumbnail"] = item['image_versions2']['candidates'][0]['url']
+                                            
+                                        story_list.append(story_info)
+                                    
+                                    return {
+                                        "success": True,
+                                        "username": username,
+                                        "stories": story_list
+                                    }
+                                else:
+                                    error_text = await story_response.text()
+                                    logger.error(f"Failed to fetch stories: {story_response.status} - {error_text}")
+                                    raise HTTPException(status_code=story_response.status, detail="Story'ler alınamadı")
+                        else:
+                            raise HTTPException(status_code=404, detail=f"Kullanıcı bulunamadı: {username}")
+                    elif response.status == 401:
+                        error_text = await response.text()
+                        logger.error(f"Authentication failed: {error_text}")
+                        raise HTTPException(status_code=401, detail="Story'leri görüntülemek için giriş yapılması gerekiyor")
+                    else:
+                        error_text = await response.text()
+                        logger.error(f"Failed to get user info: {response.status} - {error_text}")
+                        raise HTTPException(status_code=response.status, detail="Kullanıcı bilgileri alınamadı")
+                        
+        except aiohttp.ClientError as e:
+            logger.error(f"Network error: {str(e)}")
+            raise HTTPException(status_code=500, detail="Ağ hatası oluştu")
+        except Exception as e:
+            logger.error(f"Story fetch error: {str(e)}")
+            raise HTTPException(status_code=500, detail="Story'ler alınamadı. Lütfen daha sonra tekrar deneyin.")
+            
+    except Exception as e:
+        logger.error(f"Story fetch error for {username}: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":

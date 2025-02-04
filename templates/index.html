@@ -68,6 +68,16 @@
 						</div>
 					</div>
 
+					<!-- Story seçim bölümü -->
+					<div id="story-selector" class="mb-6 hidden">
+						<label class="block text-gray-700 text-sm font-bold mb-2">
+							Kullanıcının Story'leri
+						</label>
+						<div id="story-list" class="grid grid-cols-2 gap-4 mt-2">
+							<!-- Story'ler buraya dinamik olarak eklenecek -->
+						</div>
+					</div>
+
 					<button
 						id="download-btn"
 						class="w-full bg-purple-600 text-white py-2 px-4 rounded-lg hover:bg-purple-700 transition duration-200"
@@ -117,6 +127,85 @@
 			const errorDiv = document.getElementById("error");
 			const downloadLink = document.getElementById("download-link");
 			const errorMessage = document.getElementById("error-message");
+			const storySelector = document.getElementById("story-selector");
+			const storyList = document.getElementById("story-list");
+			
+			// Story seçildiğinde göster/gizle
+			document.querySelectorAll('input[name="type"]').forEach((radio) => {
+				radio.addEventListener('change', (e) => {
+					if (e.target.value === 'story') {
+						storySelector.classList.remove('hidden');
+						// URL'den kullanıcı adını al ve story'leri getir
+						const url = urlInput.value;
+						const username = extractUsername(url);
+						if (username) {
+							fetchStories(username);
+						}
+					} else {
+						storySelector.classList.add('hidden');
+					}
+				});
+			});
+			
+			// URL değiştiğinde ve story seçiliyse story'leri güncelle
+			urlInput.addEventListener('input', (e) => {
+				if (document.querySelector('input[name="type"]:checked').value === 'story') {
+					const username = extractUsername(e.target.value);
+					if (username) {
+						fetchStories(username);
+					}
+				}
+			});
+			
+			function extractUsername(url) {
+				// stories/username/... formatından kullanıcı adını çıkar
+				const match = url.match(/instagram\.com\/stories\/([^/]+)/);
+				return match ? match[1] : null;
+			}
+			
+			async function fetchStories(username) {
+				try {
+					statusDiv.classList.remove('hidden');
+					storyList.innerHTML = '';
+					
+					const response = await axios.get(`/api/stories/${username}`);
+					if (response.data.success) {
+						const stories = response.data.stories;
+						if (stories.length === 0) {
+							showError('Kullanıcının aktif story\'si bulunmuyor');
+							return;
+						}
+						
+						stories.forEach(story => {
+							const storyElement = document.createElement('div');
+							storyElement.className = 'border rounded p-4 cursor-pointer hover:bg-gray-50';
+							storyElement.innerHTML = `
+								<div class="flex items-center">
+									<div class="flex-1">
+										<p class="font-semibold">${story.type}</p>
+										<p class="text-sm text-gray-500">${new Date(story.timestamp).toLocaleString()}</p>
+									</div>
+									<button 
+										class="ml-2 px-3 py-1 bg-purple-600 text-white rounded hover:bg-purple-700"
+										onclick="downloadStory('${story.url}')"
+									>
+										İndir
+									</button>
+								</div>
+							`;
+							storyList.appendChild(storyElement);
+						});
+					}
+				} catch (error) {
+					showError(error.response?.data?.detail || 'Story\'ler alınamadı');
+				} finally {
+					statusDiv.classList.add('hidden');
+				}
+			}
+			
+			function downloadStory(url) {
+				downloadMedia(url);
+			}
 
 			function downloadMedia(url) {
 				window.location.href = `/api/download-media?url=${encodeURIComponent(url)}`;
@@ -136,6 +225,18 @@
 				if (!url) {
 					showError("Lütfen bir Instagram URL'si girin");
 					return;
+				}
+				
+				// Story seçili ise butona tıklandığında story'leri getir
+				if (type === 'story') {
+					const username = extractUsername(url);
+					if (username) {
+						fetchStories(username);
+						return;
+					} else {
+						showError("Geçerli bir story URL'si değil");
+						return;
+					}
 				}
 
 				try {
