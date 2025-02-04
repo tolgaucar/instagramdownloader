@@ -187,8 +187,9 @@
 					storyList.innerHTML = '';
 					errorDiv.classList.add('hidden');
 					
-					const response = await axios.get(`/api/stories/${username}`);
-					console.log('Story response:', response.data); // Debug için
+					const response = await axios.get(`/api/stories/${username}`, {
+						timeout: 60000 // 60 saniye timeout
+					});
 					
 					if (response.data.success) {
 						const stories = response.data.stories;
@@ -197,15 +198,16 @@
 							return;
 						}
 						
+						// Story seçim alanını göster
+						document.getElementById('story-selector').style.display = 'block';
+						
 						stories.forEach(story => {
-							console.log('Story item:', story); // Her story için debug
 							const storyElement = document.createElement('div');
 							storyElement.className = 'border rounded-lg p-4 cursor-pointer hover:bg-gray-50 transition duration-200 shadow-sm';
 							
 							// Önizleme URL'sini proxy üzerinden al
 							const previewUrl = story.thumbnail || story.url;
 							const proxiedUrl = `/api/proxy-image?url=${encodeURIComponent(previewUrl)}`;
-							console.log('Proxied URL:', proxiedUrl); // Debug için
 							
 							// Thumbnail ve içerik için container
 							const contentHtml = `
@@ -251,20 +253,13 @@
 							
 							storyElement.innerHTML = contentHtml;
 							storyList.appendChild(storyElement);
-							
-							// Resim yüklenme durumunu kontrol et
-							const img = storyElement.querySelector('img');
-							img.addEventListener('load', () => {
-								console.log('Image loaded successfully:', proxiedUrl);
-							});
-							img.addEventListener('error', () => {
-								console.error('Image failed to load:', proxiedUrl);
-							});
 						});
+					} else {
+						showError(response.data.message || 'Story\'ler alınamadı');
 					}
 				} catch (error) {
 					console.error('Story fetch error:', error);
-					showError(error.response?.data?.detail || 'Story\'ler alınamadı');
+					throw new Error(error.response?.data?.detail || 'Story\'ler alınamadı');
 				} finally {
 					statusDiv.classList.add('hidden');
 				}
@@ -315,14 +310,8 @@
 						}
 						
 						showLoading('Story\'ler kontrol ediliyor...');
-						const stories = await fetchStories(username);
+						await fetchStories(username);
 						hideLoading();
-						
-						if (stories.success && stories.stories.length > 0) {
-							displayStories(stories.stories);
-						} else {
-							showError(stories.message || 'Kullanıcının aktif story\'si bulunmuyor');
-						}
 					} else {
 						// Story dışındaki medyalar için direkt indirmeye başla
 						showLoading('İndiriliyor...');
@@ -331,7 +320,7 @@
 					}
 				} catch (error) {
 					hideLoading();
-					showError(error.message);
+					showError(error.message || 'Bir hata oluştu');
 				}
 			});
 
