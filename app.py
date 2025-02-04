@@ -151,11 +151,18 @@ class CookieManager:
     def __init__(self):
         self.cookies = []
         self.current_index = 0
-        self.cookie_health = {}  # Cookie sağlık durumları
-        self.cookie_cooldowns = {}  # Cookie'lerin dinlenme süreleri
-        self.request_counts = {}  # Her cookie için istek sayısı
-        self.max_requests_per_hour = 100  # Her cookie için saatlik maksimum istek
+        self.max_requests_per_hour = 100
+        self.redis = redis_client
         self.load_cookies()
+
+    def _get_cookie_health_key(self, cookie_id: str) -> str:
+        return f"cookie_health:{cookie_id}"
+
+    def _get_cookie_cooldown_key(self, cookie_id: str) -> str:
+        return f"cookie_cooldown:{cookie_id}"
+
+    def _get_request_count_key(self, cookie_id: str) -> str:
+        return f"cookie_requests:{cookie_id}"
 
     def load_cookies(self):
         cookie_dir = Path("cookies")
@@ -173,16 +180,18 @@ class CookieManager:
                         'data': cookie_data,
                         'file': cookie_file
                     })
-                    # Cookie sağlık durumunu başlat
-                    self.cookie_health[cookie_id] = {
-                        'challenges': 0,  # Challenge sayısı
-                        'successes': 0,   # Başarılı istek sayısı
-                        'last_success': None,  # Son başarılı istek zamanı
-                        'last_challenge': None,  # Son challenge zamanı
-                        'last_used': None  # Son kullanım zamanı
-                    }
-                    # İstek sayacını başlat
-                    self.request_counts[cookie_id] = []
+                    
+                    # Redis'te cookie sağlık durumunu kontrol et, yoksa oluştur
+                    health_key = self._get_cookie_health_key(cookie_id)
+                    if not self.redis.exists(health_key):
+                        self.redis.hset(health_key, mapping={
+                            'challenges': 0,
+                            'successes': 0,
+                            'last_success': '',
+                            'last_challenge': '',
+                            'last_used': ''
+                        })
+                        
                 except json.JSONDecodeError:
                     logger.error(f"Failed to parse cookie file: {cookie_file}")
 
@@ -194,34 +203,38 @@ class CookieManager:
         now = datetime.now()
         available_cookies = []
 
-        # Eski istek sayılarını temizle (1 saatten eski)
-        for cookie_id in self.request_counts:
-            self.request_counts[cookie_id] = [
-                timestamp for timestamp in self.request_counts[cookie_id]
-                if (now - timestamp).total_seconds() < 3600
-            ]
-
         for cookie in self.cookies:
             cookie_id = cookie['id']
-            health = self.cookie_health[cookie_id]
-            cooldown = self.cookie_cooldowns.get(cookie_id)
-            request_count = len(self.request_counts[cookie_id])
+            health_key = self._get_cookie_health_key(cookie_id)
+            cooldown_key = self._get_cookie_cooldown_key(cookie_id)
+            request_key = self._get_request_count_key(cookie_id)
 
-            # Cookie kullanılabilir mi kontrol et
-            if cooldown and now < cooldown:
+            # Cooldown kontrolü
+            cooldown = self.redis.get(cooldown_key)
+            if cooldown and float(cooldown) > now.timestamp():
                 continue
 
+            # Son 1 saatteki istek sayısını kontrol et
+            hour_ago = now - timedelta(hours=1)
+            request_count = self.redis.zcount(request_key, min=hour_ago.timestamp(), max=float('inf'))
             if request_count >= self.max_requests_per_hour:
                 continue
 
-            # Cookie'nin sağlık puanını hesapla
-            health_score = health['successes'] - (health['challenges'] * 2)
+            # Cookie sağlık durumunu al
+            health = self.redis.hgetall(health_key)
+            if not health:
+                continue
+
+            # Sağlık puanını hesapla
+            health_score = int(health.get('successes', 0)) - (int(health.get('challenges', 0)) * 2)
             
             # Son kullanımdan beri geçen süreye göre bonus puan
-            if health['last_used']:
-                minutes_since_last_use = (now - health['last_used']).total_seconds() / 60
+            last_used = health.get('last_used')
+            if last_used:
+                last_used_time = datetime.fromisoformat(last_used)
+                minutes_since_last_use = (now - last_used_time).total_seconds() / 60
                 if minutes_since_last_use > 5:  # 5 dakikadan fazla dinlenmişse bonus
-                    health_score += min(minutes_since_last_use / 5, 10)  # Maximum 10 bonus
+                    health_score += min(minutes_since_last_use / 5, 10)
 
             # Rate limit durumuna göre puan
             rate_limit_score = (self.max_requests_per_hour - request_count) / self.max_requests_per_hour * 10
@@ -237,8 +250,12 @@ class CookieManager:
         cookie_id = best_cookie['id']
 
         # Cookie kullanım bilgilerini güncelle
-        self.cookie_health[cookie_id]['last_used'] = now
-        self.request_counts[cookie_id].append(now)
+        health_key = self._get_cookie_health_key(cookie_id)
+        request_key = self._get_request_count_key(cookie_id)
+        
+        self.redis.hset(health_key, 'last_used', now.isoformat())
+        self.redis.zadd(request_key, {str(now.timestamp()): now.timestamp()})
+        self.redis.expire(request_key, 3600)  # 1 saat sonra expire olsun
 
         return best_cookie['data']
 
@@ -247,10 +264,15 @@ class CookieManager:
         for cookie in self.cookies:
             if cookie['data'] == cookie_data:
                 cookie_id = cookie['id']
-                self.cookie_health[cookie_id]['successes'] += 1
-                self.cookie_health[cookie_id]['last_success'] = datetime.now()
-                # Dinlenme süresini kaldır
-                self.cookie_cooldowns.pop(cookie_id, None)
+                health_key = self._get_cookie_health_key(cookie_id)
+                cooldown_key = self._get_cookie_cooldown_key(cookie_id)
+                
+                # Başarı sayısını artır ve son başarı zamanını güncelle
+                self.redis.hincrby(health_key, 'successes', 1)
+                self.redis.hset(health_key, 'last_success', datetime.now().isoformat())
+                
+                # Cooldown'u kaldır
+                self.redis.delete(cooldown_key)
                 break
 
     def mark_cookie_challenge(self, cookie_data):
@@ -259,13 +281,18 @@ class CookieManager:
         for cookie in self.cookies:
             if cookie['data'] == cookie_data:
                 cookie_id = cookie['id']
-                health = self.cookie_health[cookie_id]
-                health['challenges'] += 1
-                health['last_challenge'] = now
+                health_key = self._get_cookie_health_key(cookie_id)
+                cooldown_key = self._get_cookie_cooldown_key(cookie_id)
+                
+                # Challenge sayısını artır ve son challenge zamanını güncelle
+                challenges = int(self.redis.hincrby(health_key, 'challenges', 1))
+                self.redis.hset(health_key, 'last_challenge', now.isoformat())
                 
                 # Challenge sayısına göre dinlenme süresi belirle
-                cooldown_minutes = min(30 * (2 ** (health['challenges'] - 1)), 720)  # Max 12 saat
-                self.cookie_cooldowns[cookie_id] = now + timedelta(minutes=cooldown_minutes)
+                cooldown_minutes = min(30 * (2 ** (challenges - 1)), 720)  # Max 12 saat
+                cooldown_time = now + timedelta(minutes=cooldown_minutes)
+                self.redis.set(cooldown_key, cooldown_time.timestamp())
+                self.redis.expire(cooldown_key, int(cooldown_minutes * 60))
                 
                 logger.info(f"Cookie {cookie_id} will cool down for {cooldown_minutes} minutes")
                 break
@@ -276,8 +303,13 @@ class CookieManager:
         for cookie in self.cookies:
             if cookie['data'] == cookie_data:
                 cookie_id = cookie['id']
+                cooldown_key = self._get_cookie_cooldown_key(cookie_id)
+                
                 # 30 dakika dinlenmeye al
-                self.cookie_cooldowns[cookie_id] = now + timedelta(minutes=30)
+                cooldown_time = now + timedelta(minutes=30)
+                self.redis.set(cooldown_key, cooldown_time.timestamp())
+                self.redis.expire(cooldown_key, 1800)  # 30 dakika
+                
                 logger.info(f"Cookie {cookie_id} rate limited, cooling down for 30 minutes")
                 break
 
@@ -714,6 +746,17 @@ async def download_media(request: Request):
         if not media_url:
             raise HTTPException(status_code=400, detail='Media URL is required')
 
+        # Instagram URL kontrolü
+        if 'instagram.com' in media_url and not ('cdninstagram.com' in media_url or 'fbcdn.net' in media_url):
+            # Instagram API'sini kullan
+            client_id = request.client.host
+            result = await download_media_from_instagram(media_url, client_id)
+            
+            if not result.get('success'):
+                raise HTTPException(status_code=400, detail=result.get('error', 'Failed to process Instagram URL'))
+            
+            media_url = result['media_url']
+
         # Medya dosyasını indir
         async with aiohttp.ClientSession() as session:
             async with session.get(media_url) as response:
@@ -721,11 +764,9 @@ async def download_media(request: Request):
                     raise HTTPException(status_code=400, detail='Failed to download media')
 
                 # Dosya adını belirle
-                filename = media_url.split('/')[-1]
-                if not filename:
-                    content_type = response.headers.get('content-type', '')
-                    ext = 'mp4' if 'video' in content_type else 'jpg'
-                    filename = f'download.{ext}'
+                content_type = response.headers.get('content-type', '')
+                ext = 'mp4' if 'video' in content_type else 'jpg'
+                filename = f'instagram_media_{int(time.time())}.{ext}'
 
                 # Medyayı memory buffer'a al
                 buffer = io.BytesIO(await response.read())
@@ -735,7 +776,11 @@ async def download_media(request: Request):
                     buffer,
                     media_type=response.headers.get('content-type', 'application/octet-stream'),
                     headers={
-                        'Content-Disposition': f'attachment; filename="{filename}"'
+                        'Content-Disposition': f'attachment; filename="{filename}"',
+                        'Content-Type': content_type,
+                        'Cache-Control': 'no-cache, no-store, must-revalidate',
+                        'Pragma': 'no-cache',
+                        'Expires': '0'
                     }
                 )
 
