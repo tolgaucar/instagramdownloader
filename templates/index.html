@@ -133,42 +133,63 @@
 			// Story seçildiğinde göster/gizle
 			document.querySelectorAll('input[name="type"]').forEach((radio) => {
 				radio.addEventListener('change', (e) => {
-					if (e.target.value === 'story') {
-						storySelector.classList.remove('hidden');
-						// URL'den kullanıcı adını al ve story'leri getir
-						const url = urlInput.value;
-						const username = extractUsername(url);
-						if (username) {
-							fetchStories(username);
-						}
-					} else {
-						storySelector.classList.add('hidden');
+					const urlInput = document.getElementById('instagram-url');
+					
+					// Placeholder'ı seçilen tipe göre güncelle
+					switch(e.target.value) {
+						case 'story':
+							urlInput.placeholder = 'https://www.instagram.com/stories/username/';
+							storySelector.classList.remove('hidden');
+							// URL'den kullanıcı adını al ve story'leri getir
+							const username = extractUsername(urlInput.value);
+							if (username) {
+								fetchStories(username);
+							}
+							break;
+						case 'post':
+							urlInput.placeholder = 'https://www.instagram.com/p/...';
+							storySelector.classList.add('hidden');
+							break;
+						case 'reel':
+							urlInput.placeholder = 'https://www.instagram.com/reel/...';
+							storySelector.classList.add('hidden');
+							break;
 					}
 				});
 			});
 			
-			// URL değiştiğinde ve story seçiliyse story'leri güncelle
-			urlInput.addEventListener('input', (e) => {
-				if (document.querySelector('input[name="type"]:checked').value === 'story') {
-					const username = extractUsername(e.target.value);
-					if (username) {
-						fetchStories(username);
+			function extractUsername(url) {
+				if (!url) return null;
+				
+				// URL'yi temizle ve normalize et
+				url = url.trim().replace(/\/$/, '');
+				
+				// Farklı URL formatlarını kontrol et
+				const patterns = [
+					/instagram\.com\/stories\/([^/?]+)/,  // stories/username/ veya stories/username/story_id
+					/instagram\.com\/([^/?]+)/,           // doğrudan username
+				];
+				
+				for (const pattern of patterns) {
+					const match = url.match(pattern);
+					if (match && match[1]) {
+						// Kullanıcı adını döndür
+						return match[1];
 					}
 				}
-			});
-			
-			function extractUsername(url) {
-				// stories/username/... formatından kullanıcı adını çıkar
-				const match = url.match(/instagram\.com\/stories\/([^/]+)/);
-				return match ? match[1] : null;
+				
+				return null;
 			}
 			
 			async function fetchStories(username) {
 				try {
 					statusDiv.classList.remove('hidden');
 					storyList.innerHTML = '';
+					errorDiv.classList.add('hidden');
 					
 					const response = await axios.get(`/api/stories/${username}`);
+					console.log('Story response:', response.data); // Debug için
+					
 					if (response.data.success) {
 						const stories = response.data.stories;
 						if (stories.length === 0) {
@@ -177,26 +198,72 @@
 						}
 						
 						stories.forEach(story => {
+							console.log('Story item:', story); // Her story için debug
 							const storyElement = document.createElement('div');
-							storyElement.className = 'border rounded p-4 cursor-pointer hover:bg-gray-50';
-							storyElement.innerHTML = `
-								<div class="flex items-center">
-									<div class="flex-1">
-										<p class="font-semibold">${story.type}</p>
-										<p class="text-sm text-gray-500">${new Date(story.timestamp).toLocaleString()}</p>
+							storyElement.className = 'border rounded-lg p-4 cursor-pointer hover:bg-gray-50 transition duration-200 shadow-sm';
+							
+							// Önizleme URL'sini proxy üzerinden al
+							const previewUrl = story.thumbnail || story.url;
+							const proxiedUrl = `/api/proxy-image?url=${encodeURIComponent(previewUrl)}`;
+							console.log('Proxied URL:', proxiedUrl); // Debug için
+							
+							// Thumbnail ve içerik için container
+							const contentHtml = `
+								<div class="flex flex-col">
+									<div class="relative mb-3 rounded-lg overflow-hidden bg-gray-100" style="aspect-ratio: 9/16;">
+										<img 
+											src="${proxiedUrl}"
+											alt="Story önizleme"
+											class="absolute inset-0 w-full h-full object-cover"
+											onerror="this.onerror=null; this.src='data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNDAwIiBoZWlnaHQ9IjcxMSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSIjZjNmNGY2Ii8+PHRleHQgeD0iNTAlIiB5PSI1MCUiIGZvbnQtZmFtaWx5PSJBcmlhbCIgZm9udC1zaXplPSIyMCIgZmlsbD0iIzljYTNhZiIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZHk9Ii4zZW0iPsOWbml6bGVtZSBZw7xrbGVuZW1lZGk8L3RleHQ+PC9zdmc+'"
+										/>
+										<div class="absolute inset-0 bg-black bg-opacity-20"></div>
+										<div class="absolute top-2 right-2">
+											${story.type === 'video' 
+												? '<span class="bg-purple-600 text-white text-xs px-2 py-1 rounded-full"><svg class="w-4 h-4 inline-block" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg></span>'
+												: '<span class="bg-purple-600 text-white text-xs px-2 py-1 rounded-full"><svg class="w-4 h-4 inline-block" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg></span>'
+											}
+										</div>
 									</div>
-									<button 
-										class="ml-2 px-3 py-1 bg-purple-600 text-white rounded hover:bg-purple-700"
-										onclick="downloadStory('${story.url}')"
-									>
-										İndir
-									</button>
+									<div class="flex items-center justify-between">
+										<div class="flex-1">
+											<p class="text-sm text-gray-500">
+												${new Date(story.timestamp).toLocaleString('tr-TR', {
+													hour: '2-digit',
+													minute: '2-digit',
+													day: '2-digit',
+													month: '2-digit'
+												})}
+											</p>
+										</div>
+										<button 
+											onclick="downloadStory('${story.url}')"
+											class="ml-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition duration-200 flex items-center space-x-1"
+										>
+											<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+												<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path>
+											</svg>
+											<span>İndir</span>
+										</button>
+									</div>
 								</div>
 							`;
+							
+							storyElement.innerHTML = contentHtml;
 							storyList.appendChild(storyElement);
+							
+							// Resim yüklenme durumunu kontrol et
+							const img = storyElement.querySelector('img');
+							img.addEventListener('load', () => {
+								console.log('Image loaded successfully:', proxiedUrl);
+							});
+							img.addEventListener('error', () => {
+								console.error('Image failed to load:', proxiedUrl);
+							});
 						});
 					}
 				} catch (error) {
+					console.error('Story fetch error:', error);
 					showError(error.response?.data?.detail || 'Story\'ler alınamadı');
 				} finally {
 					statusDiv.classList.add('hidden');
@@ -216,6 +283,16 @@
 				e.preventDefault();
 				const url = downloadLink.href;
 				downloadMedia(url);
+			});
+
+			// URL input değişikliğini dinle
+			urlInput.addEventListener('input', (e) => {
+				if (document.querySelector('input[name="type"]:checked').value === 'story') {
+					const username = extractUsername(e.target.value);
+					if (username) {
+						fetchStories(username);
+					}
+				}
 			});
 
 			downloadBtn.addEventListener("click", async () => {

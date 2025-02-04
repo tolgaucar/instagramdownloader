@@ -1,7 +1,7 @@
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse, Response
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 import instaloader
@@ -654,85 +654,93 @@ async def get_user_stories(username: str):
             
             # Instagram API'sine direkt istek at
             headers = {
-                'authority': 'www.instagram.com',
+                'authority': 'i.instagram.com',
                 'accept': '*/*',
                 'accept-language': 'en-US,en;q=0.9',
-                'dpr': '2',
+                'origin': 'https://www.instagram.com',
                 'referer': 'https://www.instagram.com/',
-                'sec-ch-prefers-color-scheme': 'dark',
-                'sec-ch-ua': '"Not_A Brand";v="8", "Chromium";v="120"',
-                'sec-ch-ua-full-version-list': '"Not_A Brand";v="8.0.0.0", "Chromium";v="120.0.6099.199"',
-                'sec-ch-ua-mobile': '?0',
-                'sec-ch-ua-model': '""',
-                'sec-ch-ua-platform': '"macOS"',
-                'sec-ch-ua-platform-version': '"13.0.0"',
                 'sec-fetch-dest': 'empty',
                 'sec-fetch-mode': 'cors',
-                'sec-fetch-site': 'same-origin',
-                'viewport-width': '1512',
+                'sec-fetch-site': 'same-site',
+                'user-agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
                 'x-asbd-id': '129477',
                 'x-csrftoken': new_cookies.get('csrftoken', ''),
                 'x-ig-app-id': '936619743392459',
-                'x-ig-www-claim': '0',
-                'x-requested-with': 'XMLHttpRequest',
-                'user-agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+                'x-ig-www-claim': '0'
             }
             
             cookies_dict = {k: v for k, v in new_cookies.items()}
             
             # Önce user ID'yi al
             async with aiohttp.ClientSession() as session:
-                user_lookup_url = f"https://www.instagram.com/api/v1/users/web_profile_info/?username={username}"
-                async with session.get(user_lookup_url, headers=headers, cookies=cookies_dict) as response:
+                user_lookup_url = f"https://i.instagram.com/api/v1/users/web_profile_info/?username={username}"
+                
+                # Allow redirects
+                async with session.get(user_lookup_url, headers=headers, cookies=cookies_dict, allow_redirects=True) as response:
                     if response.status == 200:
-                        user_data = await response.json()
-                        if 'data' in user_data and 'user' in user_data['data']:
-                            user_id = user_data['data']['user']['id']
-                            logger.debug(f"Found user ID: {user_id}")
-                            
-                            # Story'leri al
-                            stories_url = f"https://www.instagram.com/api/v1/feed/user/{user_id}/story/"
-                            async with session.get(stories_url, headers=headers, cookies=cookies_dict) as story_response:
-                                if story_response.status == 200:
-                                    story_data = await story_response.json()
-                                    logger.debug(f"Story response: {story_data}")
-                                    
-                                    if 'items' not in story_data or not story_data['items']:
+                        response_text = await response.text()
+                        try:
+                            user_data = json.loads(response_text)
+                            if 'data' in user_data and 'user' in user_data['data']:
+                                user_id = user_data['data']['user']['id']
+                                logger.debug(f"Found user ID: {user_id}")
+                                
+                                # Story'leri al - farklı endpoint kullan
+                                stories_url = f"https://i.instagram.com/api/v1/feed/reels_media/?reel_ids={user_id}"
+                                async with session.get(stories_url, headers=headers, cookies=cookies_dict, allow_redirects=True) as story_response:
+                                    if story_response.status == 200:
+                                        story_data = await story_response.json()
+                                        logger.debug(f"Story response: {story_data}")
+                                        
+                                        if 'reels' not in story_data or str(user_id) not in story_data['reels']:
+                                            return {
+                                                "success": True,
+                                                "username": username,
+                                                "stories": [],
+                                                "message": "Kullanıcının aktif story'si bulunmuyor"
+                                            }
+                                        
+                                        story_list = []
+                                        items = story_data['reels'][str(user_id)].get('items', [])
+                                        
+                                        for item in items:
+                                            story_info = {
+                                                "id": item['id'],
+                                                "type": "video" if item.get('video_versions') else "photo",
+                                                "timestamp": datetime.fromtimestamp(item['taken_at']).isoformat(),
+                                            }
+                                            
+                                            if item.get('video_versions'):
+                                                # Video için en iyi kalitede URL'yi al
+                                                story_info["url"] = item['video_versions'][0]['url']
+                                                # Video thumbnail'i için en iyi kalitede resmi al
+                                                story_info["thumbnail"] = item['image_versions2']['candidates'][0]['url']
+                                            else:
+                                                # Fotoğraf için en iyi kalitede URL'yi al
+                                                candidates = item['image_versions2']['candidates']
+                                                best_quality = max(candidates, key=lambda x: x['width'] * x['height'])
+                                                story_info["url"] = best_quality['url']
+                                                story_info["thumbnail"] = best_quality['url']
+                                            
+                                            # URL'leri HTTPS'e çevir
+                                            story_info["url"] = story_info["url"].replace('http://', 'https://')
+                                            story_info["thumbnail"] = story_info["thumbnail"].replace('http://', 'https://')
+                                            
+                                            print(f"Story item processed: {story_info}")  # Debug log
+                                            story_list.append(story_info)
+                                        
                                         return {
                                             "success": True,
                                             "username": username,
-                                            "stories": [],
-                                            "message": "Kullanıcının aktif story'si bulunmuyor"
+                                            "stories": story_list
                                         }
-                                    
-                                    story_list = []
-                                    for item in story_data['items']:
-                                        story_info = {
-                                            "id": item['id'],
-                                            "type": "video" if item.get('video_versions') else "photo",
-                                            "timestamp": datetime.fromtimestamp(item['taken_at']).isoformat(),
-                                        }
-                                        
-                                        if item.get('video_versions'):
-                                            story_info["url"] = item['video_versions'][0]['url']
-                                            story_info["thumbnail"] = item['image_versions2']['candidates'][0]['url']
-                                        else:
-                                            story_info["url"] = item['image_versions2']['candidates'][0]['url']
-                                            story_info["thumbnail"] = item['image_versions2']['candidates'][0]['url']
-                                            
-                                        story_list.append(story_info)
-                                    
-                                    return {
-                                        "success": True,
-                                        "username": username,
-                                        "stories": story_list
-                                    }
-                                else:
-                                    error_text = await story_response.text()
-                                    logger.error(f"Failed to fetch stories: {story_response.status} - {error_text}")
-                                    raise HTTPException(status_code=story_response.status, detail="Story'ler alınamadı")
-                        else:
-                            raise HTTPException(status_code=404, detail=f"Kullanıcı bulunamadı: {username}")
+                                    else:
+                                        error_text = await story_response.text()
+                                        logger.error(f"Failed to fetch stories: {story_response.status} - {error_text}")
+                                        raise HTTPException(status_code=story_response.status, detail="Story'ler alınamadı")
+                        except json.JSONDecodeError as e:
+                            logger.error(f"Failed to parse user data: {response_text}")
+                            raise HTTPException(status_code=500, detail="Kullanıcı bilgileri alınamadı")
                     elif response.status == 401:
                         error_text = await response.text()
                         logger.error(f"Authentication failed: {error_text}")
@@ -751,6 +759,49 @@ async def get_user_stories(username: str):
             
     except Exception as e:
         logger.error(f"Story fetch error for {username}: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/proxy-image")
+async def proxy_image(url: str):
+    """Resim proxy endpoint'i"""
+    try:
+        # Cookie'leri al
+        new_cookies = cookie_manager.get_next_cookie()
+        cookies_dict = {k: v for k, v in new_cookies.items()}
+        
+        # Instagram için gerekli header'ları ayarla
+        headers = {
+            'authority': 'i.instagram.com',
+            'accept': '*/*',
+            'accept-language': 'en-US,en;q=0.9',
+            'origin': 'https://www.instagram.com',
+            'referer': 'https://www.instagram.com/',
+            'sec-fetch-dest': 'empty',
+            'sec-fetch-mode': 'cors',
+            'sec-fetch-site': 'same-site',
+            'user-agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'x-asbd-id': '129477',
+            'x-csrftoken': new_cookies.get('csrftoken', ''),
+            'x-ig-app-id': '936619743392459',
+            'x-ig-www-claim': '0'
+        }
+        
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, headers=headers, cookies=cookies_dict, allow_redirects=True) as response:
+                if response.status != 200:
+                    logger.error(f"Failed to fetch image: {response.status} - {await response.text()}")
+                    raise HTTPException(status_code=400, detail="Failed to fetch image")
+                
+                # Resmi memory'ye al
+                image_data = await response.read()
+                
+                return Response(
+                    content=image_data,
+                    media_type=response.headers.get('content-type', 'image/jpeg')
+                )
+                
+    except Exception as e:
+        logger.error(f"Image proxy error: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":
