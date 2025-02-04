@@ -151,32 +151,135 @@ class CookieManager:
     def __init__(self):
         self.cookies = []
         self.current_index = 0
-        self.load_all_cookies()
-    
-    def load_all_cookies(self):
-        # cookies klasöründeki tüm .json dosyalarını yükle
+        self.cookie_health = {}  # Cookie sağlık durumları
+        self.cookie_cooldowns = {}  # Cookie'lerin dinlenme süreleri
+        self.request_counts = {}  # Her cookie için istek sayısı
+        self.max_requests_per_hour = 100  # Her cookie için saatlik maksimum istek
+        self.load_cookies()
+
+    def load_cookies(self):
         cookie_dir = Path("cookies")
         if not cookie_dir.exists():
-            cookie_dir.mkdir(exist_ok=True)
-            
+            raise Exception("Cookies directory not found")
+
+        # Tüm cookie'leri yükle
         for cookie_file in cookie_dir.glob("*.json"):
-            try:
-                with open(cookie_file, 'r') as f:
+            with open(cookie_file) as f:
+                try:
                     cookie_data = json.load(f)
+                    cookie_id = cookie_file.stem  # account1, account2, vs.
                     self.cookies.append({
-                        'file': cookie_file,
-                        'data': cookie_data
+                        'id': cookie_id,
+                        'data': cookie_data,
+                        'file': cookie_file
                     })
-            except Exception as e:
-                logger.error(f"Cookie dosyası yüklenemedi {cookie_file}: {str(e)}")
-    
-    def get_next_cookie(self):
+                    # Cookie sağlık durumunu başlat
+                    self.cookie_health[cookie_id] = {
+                        'challenges': 0,  # Challenge sayısı
+                        'successes': 0,   # Başarılı istek sayısı
+                        'last_success': None,  # Son başarılı istek zamanı
+                        'last_challenge': None,  # Son challenge zamanı
+                        'last_used': None  # Son kullanım zamanı
+                    }
+                    # İstek sayacını başlat
+                    self.request_counts[cookie_id] = []
+                except json.JSONDecodeError:
+                    logger.error(f"Failed to parse cookie file: {cookie_file}")
+
         if not self.cookies:
-            raise Exception("Kullanılabilir cookie bulunamadı")
+            raise Exception("No valid cookies found")
+
+    def get_next_cookie(self):
+        """En uygun cookie'yi seç"""
+        now = datetime.now()
+        available_cookies = []
+
+        # Eski istek sayılarını temizle (1 saatten eski)
+        for cookie_id in self.request_counts:
+            self.request_counts[cookie_id] = [
+                timestamp for timestamp in self.request_counts[cookie_id]
+                if (now - timestamp).total_seconds() < 3600
+            ]
+
+        for cookie in self.cookies:
+            cookie_id = cookie['id']
+            health = self.cookie_health[cookie_id]
+            cooldown = self.cookie_cooldowns.get(cookie_id)
+            request_count = len(self.request_counts[cookie_id])
+
+            # Cookie kullanılabilir mi kontrol et
+            if cooldown and now < cooldown:
+                continue
+
+            if request_count >= self.max_requests_per_hour:
+                continue
+
+            # Cookie'nin sağlık puanını hesapla
+            health_score = health['successes'] - (health['challenges'] * 2)
             
-        cookie = self.cookies[self.current_index]
-        self.current_index = (self.current_index + 1) % len(self.cookies)
-        return cookie['data']
+            # Son kullanımdan beri geçen süreye göre bonus puan
+            if health['last_used']:
+                minutes_since_last_use = (now - health['last_used']).total_seconds() / 60
+                if minutes_since_last_use > 5:  # 5 dakikadan fazla dinlenmişse bonus
+                    health_score += min(minutes_since_last_use / 5, 10)  # Maximum 10 bonus
+
+            # Rate limit durumuna göre puan
+            rate_limit_score = (self.max_requests_per_hour - request_count) / self.max_requests_per_hour * 10
+            health_score += rate_limit_score
+
+            available_cookies.append((cookie, health_score))
+
+        if not available_cookies:
+            return None
+
+        # En yüksek puanlı cookie'yi seç
+        best_cookie = max(available_cookies, key=lambda x: x[1])[0]
+        cookie_id = best_cookie['id']
+
+        # Cookie kullanım bilgilerini güncelle
+        self.cookie_health[cookie_id]['last_used'] = now
+        self.request_counts[cookie_id].append(now)
+
+        return best_cookie['data']
+
+    def mark_cookie_success(self, cookie_data):
+        """Cookie başarılı olduğunda çağrılır"""
+        for cookie in self.cookies:
+            if cookie['data'] == cookie_data:
+                cookie_id = cookie['id']
+                self.cookie_health[cookie_id]['successes'] += 1
+                self.cookie_health[cookie_id]['last_success'] = datetime.now()
+                # Dinlenme süresini kaldır
+                self.cookie_cooldowns.pop(cookie_id, None)
+                break
+
+    def mark_cookie_challenge(self, cookie_data):
+        """Cookie challenge aldığında çağrılır"""
+        now = datetime.now()
+        for cookie in self.cookies:
+            if cookie['data'] == cookie_data:
+                cookie_id = cookie['id']
+                health = self.cookie_health[cookie_id]
+                health['challenges'] += 1
+                health['last_challenge'] = now
+                
+                # Challenge sayısına göre dinlenme süresi belirle
+                cooldown_minutes = min(30 * (2 ** (health['challenges'] - 1)), 720)  # Max 12 saat
+                self.cookie_cooldowns[cookie_id] = now + timedelta(minutes=cooldown_minutes)
+                
+                logger.info(f"Cookie {cookie_id} will cool down for {cooldown_minutes} minutes")
+                break
+
+    def mark_cookie_rate_limited(self, cookie_data):
+        """Cookie rate limit aldığında çağrılır"""
+        now = datetime.now()
+        for cookie in self.cookies:
+            if cookie['data'] == cookie_data:
+                cookie_id = cookie['id']
+                # 30 dakika dinlenmeye al
+                self.cookie_cooldowns[cookie_id] = now + timedelta(minutes=30)
+                logger.info(f"Cookie {cookie_id} rate limited, cooling down for 30 minutes")
+                break
 
 # Redis bağlantısı
 redis_client = redis.Redis(
@@ -643,166 +746,226 @@ async def download_media(request: Request):
 @app.get("/api/stories/{username}")
 async def get_user_stories(username: str):
     """Kullanıcının story'lerini listele"""
-    try:
-        loader = await loader_pool.get_loader()
-        
-        # Cookie'leri yükle
+    max_retries = 5
+    last_error = None
+
+    for attempt in range(max_retries):
         try:
+            # Her denemede yeni bir cookie al
             new_cookies = cookie_manager.get_next_cookie()
-            loader_pool.load_cookies_to_loader(loader, new_cookies)
-            logger.debug(f"Cookies loaded for story fetch - user_id: {loader.context.user_id}")
+            if not new_cookies:
+                raise HTTPException(status_code=429, detail="Tüm cookie'ler kullanımda veya dinleniyor. Lütfen birkaç dakika sonra tekrar deneyin.")
             
             # Instagram API'sine direkt istek at
             headers = {
-                'authority': 'i.instagram.com',
+                'authority': 'www.instagram.com',
                 'accept': '*/*',
                 'accept-language': 'en-US,en;q=0.9',
                 'origin': 'https://www.instagram.com',
-                'referer': 'https://www.instagram.com/',
+                'referer': f'https://www.instagram.com/{username}/stories/',
                 'sec-fetch-dest': 'empty',
                 'sec-fetch-mode': 'cors',
-                'sec-fetch-site': 'same-site',
+                'sec-fetch-site': 'same-origin',
                 'user-agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
                 'x-asbd-id': '129477',
                 'x-csrftoken': new_cookies.get('csrftoken', ''),
                 'x-ig-app-id': '936619743392459',
-                'x-ig-www-claim': '0'
+                'x-ig-www-claim': '0',
+                'x-requested-with': 'XMLHttpRequest',
+                'x-instagram-ajax': '1'
             }
             
-            cookies_dict = {k: v for k, v in new_cookies.items()}
-            
-            # Önce user ID'yi al
+            cookies_dict = {
+                'sessionid': new_cookies.get('sessionid'),
+                'csrftoken': new_cookies.get('csrftoken'),
+                'ds_user_id': new_cookies.get('ds_user_id'),
+                'ig_did': new_cookies.get('ig_did'),
+                'rur': new_cookies.get('rur')
+            }
+
             async with aiohttp.ClientSession() as session:
-                user_lookup_url = f"https://i.instagram.com/api/v1/users/web_profile_info/?username={username}"
+                # Story'leri al
+                user_lookup_url = f"https://www.instagram.com/api/v1/users/web_profile_info/?username={username}"
                 
-                # Allow redirects
-                async with session.get(user_lookup_url, headers=headers, cookies=cookies_dict, allow_redirects=True) as response:
+                async with session.get(user_lookup_url, headers=headers, cookies=cookies_dict) as response:
+                    response_text = await response.text()
+                    
+                    if "rate_limit" in response_text.lower():
+                        logger.warning(f"Rate limit detected for cookie")
+                        cookie_manager.mark_cookie_rate_limited(new_cookies)
+                        if attempt < max_retries - 1:
+                            continue
+                        last_error = "Rate limit aşıldı"
+                    
                     if response.status == 200:
-                        response_text = await response.text()
                         try:
                             user_data = json.loads(response_text)
                             if 'data' in user_data and 'user' in user_data['data']:
                                 user_id = user_data['data']['user']['id']
-                                logger.debug(f"Found user ID: {user_id}")
                                 
-                                # Story'leri al - farklı endpoint kullan
-                                stories_url = f"https://i.instagram.com/api/v1/feed/reels_media/?reel_ids={user_id}"
-                                async with session.get(stories_url, headers=headers, cookies=cookies_dict, allow_redirects=True) as story_response:
+                                stories_url = f"https://www.instagram.com/api/v1/feed/reels_media/?reel_ids={user_id}"
+                                async with session.get(stories_url, headers=headers, cookies=cookies_dict) as story_response:
+                                    story_text = await story_response.text()
+                                    
                                     if story_response.status == 200:
-                                        story_data = await story_response.json()
-                                        logger.debug(f"Story response: {story_data}")
-                                        
-                                        if 'reels' not in story_data or str(user_id) not in story_data['reels']:
-                                            return {
-                                                "success": True,
-                                                "username": username,
-                                                "stories": [],
-                                                "message": "Kullanıcının aktif story'si bulunmuyor"
-                                            }
-                                        
-                                        story_list = []
-                                        items = story_data['reels'][str(user_id)].get('items', [])
-                                        
-                                        for item in items:
-                                            story_info = {
-                                                "id": item['id'],
-                                                "type": "video" if item.get('video_versions') else "photo",
-                                                "timestamp": datetime.fromtimestamp(item['taken_at']).isoformat(),
-                                            }
+                                        try:
+                                            story_data = json.loads(story_text)
                                             
-                                            if item.get('video_versions'):
-                                                # Video için en iyi kalitede URL'yi al
-                                                story_info["url"] = item['video_versions'][0]['url']
-                                                # Video thumbnail'i için en iyi kalitede resmi al
-                                                story_info["thumbnail"] = item['image_versions2']['candidates'][0]['url']
+                                            if 'reels' not in story_data or str(user_id) not in story_data['reels']:
+                                                if attempt < max_retries - 1:
+                                                    continue
+                                                return {
+                                                    "success": True,
+                                                    "username": username,
+                                                    "stories": [],
+                                                    "message": "Kullanıcının aktif story'si bulunmuyor"
+                                                }
+                                            
+                                            story_list = []
+                                            items = story_data['reels'][str(user_id)].get('items', [])
+                                            
+                                            if not items and attempt < max_retries - 1:
+                                                continue
+                                            
+                                            for item in items:
+                                                story_info = {
+                                                    "id": item['id'],
+                                                    "type": "video" if item.get('video_versions') else "photo",
+                                                    "timestamp": datetime.fromtimestamp(item['taken_at']).isoformat(),
+                                                }
+                                                
+                                                if item.get('video_versions'):
+                                                    story_info["url"] = item['video_versions'][0]['url']
+                                                    story_info["thumbnail"] = item['image_versions2']['candidates'][0]['url']
+                                                else:
+                                                    candidates = item['image_versions2']['candidates']
+                                                    best_quality = max(candidates, key=lambda x: x['width'] * x['height'])
+                                                    story_info["url"] = best_quality['url']
+                                                    story_info["thumbnail"] = best_quality['url']
+                                                
+                                                story_list.append(story_info)
+                                            
+                                            if story_list:
+                                                # Başarılı işlem
+                                                cookie_manager.mark_cookie_success(new_cookies)
+                                                return {
+                                                    "success": True,
+                                                    "username": username,
+                                                    "stories": story_list
+                                                }
+                                            elif attempt < max_retries - 1:
+                                                continue
                                             else:
-                                                # Fotoğraf için en iyi kalitede URL'yi al
-                                                candidates = item['image_versions2']['candidates']
-                                                best_quality = max(candidates, key=lambda x: x['width'] * x['height'])
-                                                story_info["url"] = best_quality['url']
-                                                story_info["thumbnail"] = best_quality['url']
-                                            
-                                            # URL'leri HTTPS'e çevir
-                                            story_info["url"] = story_info["url"].replace('http://', 'https://')
-                                            story_info["thumbnail"] = story_info["thumbnail"].replace('http://', 'https://')
-                                            
-                                            print(f"Story item processed: {story_info}")  # Debug log
-                                            story_list.append(story_info)
-                                        
-                                        return {
-                                            "success": True,
-                                            "username": username,
-                                            "stories": story_list
-                                        }
+                                                return {
+                                                    "success": True,
+                                                    "username": username,
+                                                    "stories": [],
+                                                    "message": "Kullanıcının aktif story'si bulunmuyor"
+                                                }
+                                        except json.JSONDecodeError:
+                                            if attempt < max_retries - 1:
+                                                continue
+                                            last_error = "Story verisi alınamadı"
                                     else:
-                                        error_text = await story_response.text()
-                                        logger.error(f"Failed to fetch stories: {story_response.status} - {error_text}")
-                                        raise HTTPException(status_code=story_response.status, detail="Story'ler alınamadı")
-                        except json.JSONDecodeError as e:
-                            logger.error(f"Failed to parse user data: {response_text}")
-                            raise HTTPException(status_code=500, detail="Kullanıcı bilgileri alınamadı")
+                                        if attempt < max_retries - 1:
+                                            continue
+                                        last_error = f"Story'ler alınamadı: {story_text}"
+                        except json.JSONDecodeError:
+                            if attempt < max_retries - 1:
+                                continue
+                            last_error = "Kullanıcı bilgileri alınamadı"
+                    
+                    elif response.status == 400 and "checkpoint_required" in response_text:
+                        logger.error(f"Checkpoint required for cookie")
+                        cookie_manager.mark_cookie_challenge(new_cookies)
+                        if attempt < max_retries - 1:
+                            continue
+                        last_error = "Oturum doğrulama gerekiyor"
+                    
                     elif response.status == 401:
-                        error_text = await response.text()
-                        logger.error(f"Authentication failed: {error_text}")
-                        raise HTTPException(status_code=401, detail="Story'leri görüntülemek için giriş yapılması gerekiyor")
+                        if attempt < max_retries - 1:
+                            continue
+                        last_error = "Oturum geçersiz"
+                    
                     else:
-                        error_text = await response.text()
-                        logger.error(f"Failed to get user info: {response.status} - {error_text}")
-                        raise HTTPException(status_code=response.status, detail="Kullanıcı bilgileri alınamadı")
-                        
-        except aiohttp.ClientError as e:
-            logger.error(f"Network error: {str(e)}")
-            raise HTTPException(status_code=500, detail="Ağ hatası oluştu")
+                        if attempt < max_retries - 1:
+                            continue
+                        last_error = f"Kullanıcı bilgileri alınamadı: {response_text}"
+
         except Exception as e:
-            logger.error(f"Story fetch error: {str(e)}")
-            raise HTTPException(status_code=500, detail="Story'ler alınamadı. Lütfen daha sonra tekrar deneyin.")
-            
-    except Exception as e:
-        logger.error(f"Story fetch error for {username}: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+            logger.error(f"Error with cookie: {str(e)}")
+            if attempt < max_retries - 1:
+                continue
+            last_error = str(e)
+
+    # Tüm denemeler başarısız oldu
+    raise HTTPException(
+        status_code=401,
+        detail=f"Story'ler alınamadı. Lütfen birkaç dakika sonra tekrar deneyin. Son hata: {last_error}"
+    )
 
 @app.get("/api/proxy-image")
 async def proxy_image(url: str):
     """Resim proxy endpoint'i"""
-    try:
-        # Cookie'leri al
-        new_cookies = cookie_manager.get_next_cookie()
-        cookies_dict = {k: v for k, v in new_cookies.items()}
+    max_retries = 3
+    last_error = None
+
+    for attempt in range(max_retries):
+        try:
+            # Her denemede yeni bir cookie al
+            new_cookies = cookie_manager.get_next_cookie()
+            if not new_cookies:
+                raise HTTPException(status_code=429, detail="Tüm cookie'ler kullanımda veya dinleniyor. Lütfen birkaç dakika sonra tekrar deneyin.")
+            
+            # Instagram için gerekli header'ları ayarla
+            headers = {
+                'authority': 'www.instagram.com',
+                'accept': 'image/webp,image/apng,image/*,*/*;q=0.8',
+                'accept-language': 'en-US,en;q=0.9',
+                'origin': 'https://www.instagram.com',
+                'referer': 'https://www.instagram.com/',
+                'sec-fetch-dest': 'image',
+                'sec-fetch-mode': 'no-cors',
+                'sec-fetch-site': 'same-site',
+                'user-agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+            }
+            
+            cookies_dict = {k: v for k, v in new_cookies.items()}
+            
+            async with aiohttp.ClientSession() as session:
+                try:
+                    async with session.get(url, headers=headers, cookies=cookies_dict, allow_redirects=True, timeout=30) as response:
+                        if response.status == 200:
+                            cookie_manager.mark_cookie_success(new_cookies)
+                            image_data = await response.read()
+                            return Response(
+                                content=image_data,
+                                media_type=response.headers.get('content-type', 'image/jpeg')
+                            )
+                        elif response.status == 403:
+                            cookie_manager.mark_cookie_challenge(new_cookies)
+                            if attempt < max_retries - 1:
+                                continue
+                            last_error = "Oturum geçersiz"
+                        else:
+                            if attempt < max_retries - 1:
+                                continue
+                            last_error = f"Failed to fetch image: {response.status}"
+                except asyncio.TimeoutError:
+                    if attempt < max_retries - 1:
+                        continue
+                    last_error = "Request timed out"
+                except Exception as e:
+                    if attempt < max_retries - 1:
+                        continue
+                    last_error = str(e)
         
-        # Instagram için gerekli header'ları ayarla
-        headers = {
-            'authority': 'i.instagram.com',
-            'accept': '*/*',
-            'accept-language': 'en-US,en;q=0.9',
-            'origin': 'https://www.instagram.com',
-            'referer': 'https://www.instagram.com/',
-            'sec-fetch-dest': 'empty',
-            'sec-fetch-mode': 'cors',
-            'sec-fetch-site': 'same-site',
-            'user-agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'x-asbd-id': '129477',
-            'x-csrftoken': new_cookies.get('csrftoken', ''),
-            'x-ig-app-id': '936619743392459',
-            'x-ig-www-claim': '0'
-        }
-        
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url, headers=headers, cookies=cookies_dict, allow_redirects=True) as response:
-                if response.status != 200:
-                    logger.error(f"Failed to fetch image: {response.status} - {await response.text()}")
-                    raise HTTPException(status_code=400, detail="Failed to fetch image")
-                
-                # Resmi memory'ye al
-                image_data = await response.read()
-                
-                return Response(
-                    content=image_data,
-                    media_type=response.headers.get('content-type', 'image/jpeg')
-                )
-                
-    except Exception as e:
-        logger.error(f"Image proxy error: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        except Exception as e:
+            if attempt < max_retries - 1:
+                continue
+            last_error = str(e)
+    
+    raise HTTPException(status_code=500, detail=f"Image proxy error: {last_error}")
 
 if __name__ == "__main__":
     import uvicorn
