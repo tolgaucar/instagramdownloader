@@ -287,72 +287,51 @@
 
 			// URL input değişikliğini dinle
 			urlInput.addEventListener('input', (e) => {
-				if (document.querySelector('input[name="type"]:checked').value === 'story') {
-					const username = extractUsername(e.target.value);
-					if (username) {
-						fetchStories(username);
-					}
-				}
+				// URL input değiştiğinde hiçbir şey yapma, sadece input'u güncelle
+				const url = e.target.value.trim();
+				document.getElementById('download-btn').disabled = !url;
 			});
 
-			downloadBtn.addEventListener("click", async () => {
-				const url = urlInput.value;
-				const type = document.querySelector('input[name="type"]:checked').value;
-
+			document.getElementById('download-btn').addEventListener('click', async function() {
+				const url = document.getElementById('instagram-url').value.trim();
+				const mediaType = document.querySelector('input[name="type"]:checked').value;
+				
 				if (!url) {
-					showError("Lütfen bir Instagram URL'si girin");
+					showError('URL giriniz');
 					return;
 				}
+
+				// Hata mesajını ve story seçim alanını gizle
+				hideError();
+				document.getElementById('story-selector').style.display = 'none';
 				
-				// Story seçili ise butona tıklandığında story'leri getir
-				if (type === 'story') {
-					const username = extractUsername(url);
-					if (username) {
-						fetchStories(username);
-						return;
-					} else {
-						showError("Geçerli bir story URL'si değil");
-						return;
-					}
-				}
-
 				try {
-					statusDiv.classList.remove("hidden");
-					resultDiv.classList.add("hidden");
-					errorDiv.classList.add("hidden");
-					downloadBtn.disabled = true;
-
-					const response = await axios.post("/api/download", { url, type });
-					const taskId = response.data.task_id;
-
-					// Durumu kontrol et
-					const checkStatus = async () => {
-						const statusResponse = await axios.get(`/api/status/${taskId}`);
-						const { status, result } = statusResponse.data;
-
-						if (status === "SUCCESS") {
-							if (result.success) {
-								// Medyayı otomatik indir
-								downloadMedia(result.media_url);
-								statusDiv.classList.add("hidden");
-								resultDiv.classList.remove("hidden");
-								downloadLink.href = result.media_url;
-							} else {
-								showError(result.error);
-							}
-							downloadBtn.disabled = false;
-						} else if (status === "FAILURE") {
-							showError("İndirme başarısız oldu. Lütfen tekrar deneyin.");
-							downloadBtn.disabled = false;
-						} else {
-							setTimeout(checkStatus, 1000);
+					if (mediaType === 'story') {
+						// Story seçildiğinde ve butona basıldığında story'leri getir
+						const username = extractUsername(url);
+						if (!username) {
+							showError('Geçerli bir Instagram URL\'si giriniz');
+							return;
 						}
-					};
-
-					checkStatus();
+						
+						showLoading('Story\'ler kontrol ediliyor...');
+						const stories = await fetchStories(username);
+						hideLoading();
+						
+						if (stories.success && stories.stories.length > 0) {
+							displayStories(stories.stories);
+						} else {
+							showError(stories.message || 'Kullanıcının aktif story\'si bulunmuyor');
+						}
+					} else {
+						// Story dışındaki medyalar için direkt indirmeye başla
+						showLoading('İndiriliyor...');
+						await downloadMedia(url);
+						hideLoading();
+					}
 				} catch (error) {
-					showError(error.response?.data?.detail || "Bir hata oluştu");
-					downloadBtn.disabled = false;
+					hideLoading();
+					showError(error.message);
 				}
 			});
 
@@ -361,6 +340,28 @@
 				statusDiv.classList.add("hidden");
 				resultDiv.classList.add("hidden");
 				errorDiv.classList.remove("hidden");
+			}
+
+			function hideError() {
+				errorMessage.textContent = '';
+				statusDiv.classList.add("hidden");
+				resultDiv.classList.add("hidden");
+				errorDiv.classList.add("hidden");
+			}
+
+			function showLoading(message) {
+				// Loading işlemleri burada yapılabilir
+				console.log(message);
+			}
+
+			function hideLoading() {
+				// Loading işlemleri burada yapılabilir
+				console.log('Loading tamamlandı');
+			}
+
+			function displayStories(stories) {
+				// Story'lerin görüntülenmesi için gerekli işlemler burada yapılabilir
+				console.log('Story\'ler:', stories);
 			}
 		</script>
 	</body>
