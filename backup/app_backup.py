@@ -1,7 +1,7 @@
-from fastapi import FastAPI, HTTPException, Request, Form
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse, StreamingResponse, Response, HTMLResponse, RedirectResponse
+from fastapi.responses import FileResponse, StreamingResponse, Response
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 import instaloader
@@ -27,8 +27,6 @@ from pathlib import Path
 import aiohttp
 import io
 import requests
-from starlette.middleware.sessions import SessionMiddleware
-from models import Session, Language, Translation, init_db
 
 # Logging konfigürasyonu
 def setup_logging():
@@ -410,7 +408,6 @@ app.add_middleware(
 )
 app.add_middleware(GZipMiddleware, minimum_size=1000)
 app.add_middleware(TrustedHostMiddleware, allowed_hosts=["*"])
-app.add_middleware(SessionMiddleware, secret_key="your-secret-key")
 
 # Middleware for request logging
 @app.middleware("http")
@@ -705,72 +702,11 @@ async def test_redis():
 # Templates ve static dosyalar için klasörler
 templates = Jinja2Templates(directory="templates")
 os.makedirs("downloads", exist_ok=True)
-app.mount("/static", StaticFiles(directory="static"), name="static")
 app.mount("/downloads", StaticFiles(directory="downloads"), name="downloads")
 
-# Veritabanını başlat
-init_db()
-
-def get_translations(lang_code: str) -> dict:
-    """Belirtilen dil için çevirileri getir"""
-    db = Session()
-    try:
-        translations = {}
-        language = db.query(Language).filter_by(code=lang_code, is_active=True).first()
-        if language:
-            for translation in language.translations:
-                translations[translation.key] = translation.value
-        return translations
-    finally:
-        db.close()
-
-def get_languages() -> list:
-    """Aktif dilleri getir"""
-    db = Session()
-    try:
-        languages = []
-        for lang in db.query(Language).filter_by(is_active=True).all():
-            languages.append({
-                'code': lang.code,
-                'name': lang.name,
-                'flag': lang.flag
-            })
-        return languages
-    finally:
-        db.close()
-
-@app.get("/", response_class=HTMLResponse)
-async def root_redirect():
-    """Varsayılan dile yönlendir"""
-    return RedirectResponse(url="/en", status_code=302)
-
-@app.get("/{lang_code}", response_class=HTMLResponse)
-async def read_root(request: Request, lang_code: str):
-    """Ana sayfa"""
-    # Dil kontrolü
-    db = Session()
-    try:
-        language = db.query(Language).filter_by(code=lang_code, is_active=True).first()
-        
-        if not language:
-            return RedirectResponse(url="/en", status_code=302)
-        
-        # Çevirileri ve dilleri al
-        translations = get_translations(lang_code)
-        languages = get_languages()
-        
-        # Template'i render et
-        return templates.TemplateResponse(
-            "index.html",
-            {
-                "request": request,
-                "translations": translations,
-                "current_lang": lang_code,
-                "languages": languages
-            }
-        )
-    finally:
-        db.close()
+@app.get("/")
+async def read_root(request: Request):
+    return templates.TemplateResponse("index.html", {"request": request})
 
 def get_shortcode_from_url(url: str) -> str:
     """URL'den shortcode çıkar"""

@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="{{ current_lang }}">
 	<head>
 		<meta charset="UTF-8" />
 		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
-		<title>instatest - Instagram Media Downloader</title>
+		<title>{{ translations.site_name }} - {{ translations.title }}</title>
 		<link
 			href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css"
 			rel="stylesheet"
@@ -12,11 +12,24 @@
 	</head>
 	<body class="bg-gray-100 min-h-screen">
 		<div class="container mx-auto px-4 py-8">
+			<!-- Dil seçici -->
+			<div class="flex justify-end mb-4 space-x-2">
+				{% for lang in languages %}
+				<a
+					href="/{{ lang.code }}"
+					class="inline-flex items-center px-3 py-2 border rounded-md {% if current_lang == lang.code %}bg-purple-600 text-white{% else %}bg-white text-gray-700{% endif %} hover:bg-purple-500 hover:text-white transition-colors duration-200"
+				>
+					<span class="mr-2">{{ lang.flag }}</span>
+					<span>{{ lang.name }}</span>
+				</a>
+				{% endfor %}
+			</div>
+
 			<div class="max-w-3xl mx-auto">
 				<h1 class="text-4xl font-bold text-center mb-2 text-purple-600">
-					test
+					{{ translations.title }}
 				</h1>
-				<p class="text-center text-gray-600 mb-8">Instagram Media Downloader</p>
+				<p class="text-center text-gray-600 mb-8">{{ translations.subtitle }}</p>
 				
 				<div class="bg-white rounded-lg shadow-lg p-6">
 					<div class="mb-6">
@@ -24,13 +37,13 @@
 							class="block text-gray-700 text-sm font-bold mb-2"
 							for="instagram-url"
 						>
-							Instagram URL'si
+							{{ translations.input_placeholder }}
 						</label>
 						<input
 							type="text"
 							id="instagram-url"
 							class="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-600"
-							placeholder="https://www.instagram.com/p/..."
+							placeholder="{{ translations.input_placeholder }}"
 						/>
 					</div>
 					
@@ -71,7 +84,7 @@
 					<!-- Story seçim bölümü -->
 					<div id="story-selector" class="mb-6 hidden">
 						<label class="block text-gray-700 text-sm font-bold mb-2">
-							Kullanıcının Story'leri
+							{{ translations.story_selector_title }}
 						</label>
 						<div id="story-list" class="grid grid-cols-2 gap-4 mt-2">
 							<!-- Story'ler buraya dinamik olarak eklenecek -->
@@ -82,7 +95,7 @@
 						id="download-btn"
 						class="w-full bg-purple-600 text-white py-2 px-4 rounded-lg hover:bg-purple-700 transition duration-200"
 					>
-						İndir
+						{{ translations.download_button }}
 					</button>
 
 					<div id="status" class="mt-4 hidden">
@@ -98,10 +111,10 @@
 							class="bg-green-100 border-l-4 border-green-500 text-green-700 p-4"
 							role="alert"
 						>
-							<p class="font-bold">Başarılı!</p>
+							<p class="font-bold">{{ translations.success_text }}</p>
 							<p>
-								İndirme işlemi başladı. Eğer indirme başlamazsa
-								<a href="#" id="download-link" class="underline">buraya tıklayın</a>
+								{{ translations.download_start_text }}
+								<a href="#" id="download-link" class="underline">{{ translations.click_here }}</a>
 							</p>
 						</div>
 					</div>
@@ -111,9 +124,28 @@
 							class="bg-red-100 border-l-4 border-red-500 text-red-700 p-4"
 							role="alert"
 						>
-							<p class="font-bold">Hata</p>
+							<p class="font-bold">{{ translations.error_text }}</p>
 							<p id="error-message"></p>
 						</div>
+					</div>
+				</div>
+
+				<!-- Nasıl kullanılır bölümü -->
+				<div class="mt-12">
+					<h2 class="text-2xl font-bold mb-4">{{ translations.how_to_title }}</h2>
+					<div class="bg-white rounded-lg shadow-lg p-6">
+						<div class="mb-6">
+							<h3 class="text-lg font-semibold mb-2">{{ translations.how_to_step1 }}</h3>
+							<p class="text-gray-600">{{ translations.how_to_step1_desc }}</p>
+						</div>
+					</div>
+				</div>
+
+				<!-- SSS bölümü -->
+				<div class="mt-12">
+					<h2 class="text-2xl font-bold mb-4">{{ translations.faq_title }}</h2>
+					<div class="bg-white rounded-lg shadow-lg p-6">
+						<p class="text-gray-600">{{ translations.faq_desc }}</p>
 					</div>
 				</div>
 			</div>
