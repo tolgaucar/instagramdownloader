@@ -28,66 +28,98 @@ class Translation(Base):
 # Veritabanı bağlantısı
 engine = create_engine('sqlite:///database.db')
 
-# Tabloları oluştur
-Base.metadata.create_all(engine)
-
 # Session factory
 Session = sessionmaker(bind=engine)
 
 def init_db():
-    """Veritabanını başlat ve varsayılan verileri ekle"""
+    """Veritabanını başlat"""
+    Base.metadata.create_all(engine)
+
+def add_language(code: str, name: str, flag: str, is_active: bool = True):
+    """Yeni dil ekle"""
     session = Session()
-    
-    # Dilleri ekle
-    if not session.query(Language).first():
-        languages = [
-            Language(code='en', name='English', flag='🇺🇸', is_active=True),
-            Language(code='tr', name='Türkçe', flag='🇹🇷', is_active=True)
-        ]
-        session.add_all(languages)
+    try:
+        language = Language(code=code, name=name, flag=flag, is_active=is_active)
+        session.add(language)
         session.commit()
-        
-        # İngilizce çevirileri ekle
-        en = session.query(Language).filter_by(code='en').first()
-        en_translations = [
-            Translation(language_id=en.id, key='site_name', value='InstaTest'),
-            Translation(language_id=en.id, key='title', value='Instagram Story Saver'),
-            Translation(language_id=en.id, key='subtitle', value='Download your Instagram story and highlights easily!'),
-            Translation(language_id=en.id, key='input_placeholder', value='Insert instagram link here'),
-            Translation(language_id=en.id, key='paste_button', value='Paste'),
-            Translation(language_id=en.id, key='download_button', value='Download'),
-            Translation(language_id=en.id, key='loading_text', value='Downloading...'),
-            Translation(language_id=en.id, key='success_text', value='Download completed!'),
-            Translation(language_id=en.id, key='error_text', value='An error occurred'),
-            Translation(language_id=en.id, key='description', value='Story Saver created by instatest.com, is a convenient application that enables you to download any Instagram story to your device with complete anonymity.'),
-            Translation(language_id=en.id, key='how_to_title', value='How to download Story from Instagram?'),
-            Translation(language_id=en.id, key='how_to_step1', value='Copy the URL'),
-            Translation(language_id=en.id, key='how_to_step1_desc', value='First, open the Instagram Story you wish to download. Then, click on the (...) icon if you are using an iPhone or (:) if you are using an Android. From the popup menu, select the "Copy Link" option to copy the Story\'s URL.'),
-            Translation(language_id=en.id, key='faq_title', value='Frequently asked questions(FAQ)'),
-            Translation(language_id=en.id, key='faq_desc', value='This FAQ provides information on frequent questions or concerns about the instatest.com downloader. if you can\'t find the answer to your question, feel free to ask through email on our contact page.')
-        ]
-        session.add_all(en_translations)
-        
-        # Türkçe çevirileri ekle
-        tr = session.query(Language).filter_by(code='tr').first()
-        tr_translations = [
-            Translation(language_id=tr.id, key='site_name', value='InstaTest'),
-            Translation(language_id=tr.id, key='title', value='Instagram Hikaye İndirici'),
-            Translation(language_id=tr.id, key='subtitle', value='Instagram hikayelerini ve öne çıkanları kolayca indir!'),
-            Translation(language_id=tr.id, key='input_placeholder', value='Instagram linkini buraya yapıştır'),
-            Translation(language_id=tr.id, key='paste_button', value='Yapıştır'),
-            Translation(language_id=tr.id, key='download_button', value='İndir'),
-            Translation(language_id=tr.id, key='loading_text', value='İndiriliyor...'),
-            Translation(language_id=tr.id, key='success_text', value='İndirme tamamlandı!'),
-            Translation(language_id=tr.id, key='error_text', value='Bir hata oluştu'),
-            Translation(language_id=tr.id, key='description', value='instatest.com tarafından oluşturulan Story Saver, herhangi bir Instagram hikayesini cihazınıza tam gizlilikle indirmenizi sağlayan kullanışlı bir uygulamadır.'),
-            Translation(language_id=tr.id, key='how_to_title', value='Instagram\'dan Hikaye nasıl indirilir?'),
-            Translation(language_id=tr.id, key='how_to_step1', value='URL\'yi kopyalayın'),
-            Translation(language_id=tr.id, key='how_to_step1_desc', value='Önce, indirmek istediğiniz Instagram Hikayesini açın. Ardından, iPhone kullanıyorsanız (...) simgesine veya Android kullanıyorsanız (:) simgesine tıklayın. Açılan menüden "Bağlantıyı Kopyala" seçeneğini seçerek Hikayenin URL\'sini kopyalayın.'),
-            Translation(language_id=tr.id, key='faq_title', value='Sık sorulan sorular(SSS)'),
-            Translation(language_id=tr.id, key='faq_desc', value='Bu SSS, instatest.com indirici hakkında sık sorulan sorular veya endişeler hakkında bilgi sağlar. Sorunuzun cevabını bulamazsanız, iletişim sayfamızdaki e-posta yoluyla sormaktan çekinmeyin.')
-        ]
-        session.add_all(tr_translations)
+        return language
+    finally:
+        session.close()
+
+def add_translation(language_id: int, key: str, value: str):
+    """Dil için çeviri ekle"""
+    session = Session()
+    try:
+        translation = Translation(language_id=language_id, key=key, value=value)
+        session.add(translation)
         session.commit()
+        return translation
+    finally:
+        session.close()
+
+def get_language(code: str):
+    """Dil koduna göre dil bilgisini getir"""
+    session = Session()
+    try:
+        return session.query(Language).filter_by(code=code).first()
+    finally:
+        session.close()
+
+def get_translations_for_language(language_id: int):
+    """Dil ID'sine göre tüm çevirileri getir"""
+    session = Session()
+    try:
+        return session.query(Translation).filter_by(language_id=language_id).all()
+    finally:
+        session.close()
+
+def update_translation(language_id: int, key: str, value: str):
+    """Çeviriyi güncelle, yoksa ekle"""
+    session = Session()
+    try:
+        translation = session.query(Translation).filter_by(
+            language_id=language_id, 
+            key=key
+        ).first()
         
-    session.close() 
+        if translation:
+            translation.value = value
+        else:
+            translation = Translation(language_id=language_id, key=key, value=value)
+            session.add(translation)
+            
+        session.commit()
+        return translation
+    finally:
+        session.close()
+
+def delete_language(code: str):
+    """Dili ve ilişkili çevirileri sil"""
+    session = Session()
+    try:
+        language = session.query(Language).filter_by(code=code).first()
+        if language:
+            session.delete(language)
+            session.commit()
+            return True
+        return False
+    finally:
+        session.close()
+
+def update_language(code: str, name: str = None, flag: str = None, is_active: bool = None):
+    """Dil bilgilerini güncelle"""
+    session = Session()
+    try:
+        language = session.query(Language).filter_by(code=code).first()
+        if language:
+            if name is not None:
+                language.name = name
+            if flag is not None:
+                language.flag = flag
+            if is_active is not None:
+                language.is_active = is_active
+            session.commit()
+            return language
+        return None
+    finally:
+        session.close() 

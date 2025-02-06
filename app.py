@@ -28,7 +28,7 @@ import aiohttp
 import io
 import requests
 from starlette.middleware.sessions import SessionMiddleware
-from models import Session, Language, Translation, init_db
+from models import Session, Language, Translation, init_db, add_language, add_translation
 
 # Logging konfigürasyonu
 def setup_logging():
@@ -472,6 +472,69 @@ async def startup_event():
         'response_time': 0.0,
         'status_code': 0
     })
+    
+    # Veritabanını başlat
+    init_db()
+    
+    # Veritabanı boşsa varsayılan dilleri ve çevirileri ekle
+    session = Session()
+    try:
+        if not session.query(Language).first():
+            # Varsayılan dilleri ekle
+            en = add_language('en', 'English', '🇺🇸')
+            tr = add_language('tr', 'Türkçe', '🇹🇷')
+            
+            # İngilizce çeviriler
+            default_en_translations = {
+                'site_name': 'InstaTest',
+                'title': 'Instagram Story Saver',
+                'subtitle': 'Download your Instagram story and highlights easily!',
+                'input_placeholder': 'Insert instagram link here',
+                'paste_button': 'Paste',
+                'download_button': 'Download',
+                'loading_text': 'Downloading...',
+                'success_text': 'Download completed!',
+                'error_text': 'An error occurred',
+                'description': 'Story Saver created by instatest.com, is a convenient application that enables you to download any Instagram story to your device with complete anonymity.',
+                'how_to_title': 'How to download Story from Instagram?',
+                'how_to_step1': 'Copy the URL',
+                'how_to_step1_desc': 'First, open the Instagram Story you wish to download. Then, click on the (...) icon if you are using an iPhone or (:) if you are using an Android. From the popup menu, select the "Copy Link" option to copy the Story\'s URL.',
+                'faq_title': 'Frequently asked questions(FAQ)',
+                'faq_desc': 'This FAQ provides information on frequent questions or concerns about the instatest.com downloader. if you can\'t find the answer to your question, feel free to ask through email on our contact page.'
+            }
+            
+            # Türkçe çeviriler
+            default_tr_translations = {
+                'site_name': 'InstaTest',
+                'title': 'Instagram Hikaye İndirici',
+                'subtitle': 'Instagram hikayelerini ve öne çıkanları kolayca indir!',
+                'input_placeholder': 'Instagram linkini buraya yapıştır',
+                'paste_button': 'Yapıştır',
+                'download_button': 'İndir',
+                'loading_text': 'İndiriliyor...',
+                'success_text': 'İndirme tamamlandı!',
+                'error_text': 'Bir hata oluştu',
+                'description': 'instatest.com tarafından oluşturulan Story Saver, herhangi bir Instagram hikayesini cihazınıza tam gizlilikle indirmenizi sağlayan kullanışlı bir uygulamadır.',
+                'how_to_title': 'Instagram\'dan Hikaye nasıl indirilir?',
+                'how_to_step1': 'URL\'yi kopyalayın',
+                'how_to_step1_desc': 'Önce, indirmek istediğiniz Instagram Hikayesini açın. Ardından, iPhone kullanıyorsanız (...) simgesine veya Android kullanıyorsanız (:) simgesine tıklayın. Açılan menüden "Bağlantıyı Kopyala" seçeneğini seçerek Hikayenin URL\'sini kopyalayın.',
+                'faq_title': 'Sık sorulan sorular(SSS)',
+                'faq_desc': 'Bu SSS, instatest.com indirici hakkında sık sorulan sorular veya endişeler hakkında bilgi sağlar. Sorunuzun cevabını bulamazsanız, iletişim sayfamızdaki e-posta yoluyla sormaktan çekinmeyin.'
+            }
+            
+            # Çevirileri ekle
+            for key, value in default_en_translations.items():
+                add_translation(en.id, key, value)
+            
+            for key, value in default_tr_translations.items():
+                add_translation(tr.id, key, value)
+            
+            logger.info("Default languages and translations added")
+    except Exception as e:
+        logger.error(f"Error adding default languages and translations: {str(e)}")
+    finally:
+        session.close()
+    
     asyncio.create_task(periodic_cleanup())
 
 @app.on_event("shutdown")
