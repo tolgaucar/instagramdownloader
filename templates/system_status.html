@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>System Status - InstaTest</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet" />
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        .status-card {
+            transition: all 0.3s ease;
+        }
+        .status-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 25px rgba(99, 102, 241, 0.1);
+        }
+    </style>
+</head>
+<body class="bg-gray-50">
+    <div class="min-h-screen">
+        <!-- Header -->
+        <header class="bg-indigo-600 text-white">
+            <div class="container mx-auto px-4 py-6">
+                <div class="flex justify-between items-center">
+                    <h1 class="text-2xl font-bold">System Status</h1>
+                    <a href="/" class="px-4 py-2 bg-white text-indigo-600 rounded-lg hover:bg-indigo-50 transition-colors duration-200">
+                        Back to Home
+                    </a>
+                </div>
+            </div>
+        </header>
+
+        <main class="container mx-auto px-4 py-8">
+            <!-- System Resources -->
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+                <!-- CPU Usage -->
+                <div class="status-card bg-white rounded-xl p-6 shadow-sm">
+                    <div class="flex items-center justify-between mb-4">
+                        <h3 class="text-lg font-semibold text-gray-800">CPU Usage</h3>
+                        <span class="text-2xl font-bold text-indigo-600">{{ system_resources.cpu_percent }}%</span>
+                    </div>
+                    <div class="w-full bg-gray-200 rounded-full h-2.5">
+                        <div class="bg-indigo-600 h-2.5 rounded-full" style="width: {{ system_resources.cpu_percent }}%"></div>
+                    </div>
+                </div>
+
+                <!-- Memory Usage -->
+                <div class="status-card bg-white rounded-xl p-6 shadow-sm">
+                    <div class="flex items-center justify-between mb-4">
+                        <h3 class="text-lg font-semibold text-gray-800">Memory Usage</h3>
+                        <span class="text-2xl font-bold text-indigo-600">{{ system_resources.memory.percent }}%</span>
+                    </div>
+                    <div class="w-full bg-gray-200 rounded-full h-2.5">
+                        <div class="bg-indigo-600 h-2.5 rounded-full" style="width: {{ system_resources.memory.percent }}%"></div>
+                    </div>
+                    <div class="mt-2 text-sm text-gray-500">
+                        Available: {{ '{:.1f}'.format(system_resources.memory.available / (1024**3)) }} GB /
+                        Total: {{ '{:.1f}'.format(system_resources.memory.total / (1024**3)) }} GB
+                    </div>
+                </div>
+
+                <!-- Disk Usage -->
+                <div class="status-card bg-white rounded-xl p-6 shadow-sm">
+                    <div class="flex items-center justify-between mb-4">
+                        <h3 class="text-lg font-semibold text-gray-800">Disk Usage</h3>
+                        <span class="text-2xl font-bold text-indigo-600">{{ system_resources.disk.percent }}%</span>
+                    </div>
+                    <div class="w-full bg-gray-200 rounded-full h-2.5">
+                        <div class="bg-indigo-600 h-2.5 rounded-full" style="width: {{ system_resources.disk.percent }}%"></div>
+                    </div>
+                    <div class="mt-2 text-sm text-gray-500">
+                        Free: {{ '{:.1f}'.format(system_resources.disk.free / (1024**3)) }} GB /
+                        Total: {{ '{:.1f}'.format(system_resources.disk.total / (1024**3)) }} GB
+                    </div>
+                </div>
+            </div>
+
+            <!-- Services Status -->
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+                <!-- Redis Status -->
+                <div class="status-card bg-white rounded-xl p-6 shadow-sm">
+                    <div class="flex items-center justify-between mb-4">
+                        <h3 class="text-lg font-semibold text-gray-800">Redis Status</h3>
+                        <span class="px-3 py-1 rounded-full text-sm font-medium
+                            {% if redis_status.status == 'OK' %}
+                                bg-green-100 text-green-800
+                            {% else %}
+                                bg-red-100 text-red-800
+                            {% endif %}
+                        ">
+                            {{ redis_status.status }}
+                        </span>
+                    </div>
+                    {% if redis_status.error %}
+                        <p class="text-red-600">{{ redis_status.error }}</p>
+                    {% else %}
+                        <div class="space-y-2">
+                            <h4 class="font-medium text-gray-700">Rate Limits</h4>
+                            {% for key, count in redis_status.rate_limits.items() %}
+                                <div class="flex justify-between text-sm">
+                                    <span class="text-gray-600">{{ key }}</span>
+                                    <span class="font-medium">{{ count }} requests</span>
+                                </div>
+                            {% endfor %}
+                        </div>
+                    {% endif %}
+                </div>
+
+                <!-- Database Status -->
+                <div class="status-card bg-white rounded-xl p-6 shadow-sm">
+                    <div class="flex items-center justify-between mb-4">
+                        <h3 class="text-lg font-semibold text-gray-800">Database Status</h3>
+                        <span class="px-3 py-1 rounded-full text-sm font-medium
+                            {% if db_status.status == 'OK' %}
+                                bg-green-100 text-green-800
+                            {% else %}
+                                bg-red-100 text-red-800
+                            {% endif %}
+                        ">
+                            {{ db_status.status }}
+                        </span>
+                    </div>
+                    {% if db_status.error %}
+                        <p class="text-red-600">{{ db_status.error }}</p>
+                    {% else %}
+                        <div class="space-y-2">
+                            <div class="flex justify-between text-sm">
+                                <span class="text-gray-600">Languages</span>
+                                <span class="font-medium">{{ db_status.stats.languages }}</span>
+                            </div>
+                            <div class="flex justify-between text-sm">
+                                <span class="text-gray-600">Translations</span>
+                                <span class="font-medium">{{ db_status.stats.translations }}</span>
+                            </div>
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+
+            <!-- Cookie Status -->
+            <div class="bg-white rounded-xl p-6 shadow-sm mb-8">
+                <h3 class="text-lg font-semibold text-gray-800 mb-4">Cookie Status</h3>
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {% for cookie in cookie_status.cookies %}
+                        <div class="status-card border rounded-lg p-4">
+                            <div class="flex items-center justify-between mb-2">
+                                <span class="font-medium text-gray-700">{{ cookie.id }}</span>
+                                {% if cookie.cooldown %}
+                                    <span class="px-2 py-1 bg-yellow-100 text-yellow-800 rounded-full text-xs">Cooling Down</span>
+                                {% else %}
+                                    <span class="px-2 py-1 bg-green-100 text-green-800 rounded-full text-xs">Active</span>
+                                {% endif %}
+                            </div>
+                            <div class="space-y-1 text-sm">
+                                <div class="flex justify-between">
+                                    <span class="text-gray-600">Success Rate</span>
+                                    <span class="font-medium">
+                                        {% set success_rate = (cookie.health.successes|int / (cookie.health.challenges|int + cookie.health.successes|int) * 100) if cookie.health.successes|int + cookie.health.challenges|int > 0 else 0 %}
+                                        {{ '{:.1f}'.format(success_rate) }}%
+                                    </span>
+                                </div>
+                                <div class="flex justify-between">
+                                    <span class="text-gray-600">Requests</span>
+                                    <span class="font-medium">{{ cookie.request_count }}</span>
+                                </div>
+                                <div class="flex justify-between">
+                                    <span class="text-gray-600">Last Success</span>
+                                    <span class="font-medium">{{ cookie.health.last_success.split('T')[0] if cookie.health.last_success else 'Never' }}</span>
+                                </div>
+                            </div>
+                        </div>
+                    {% endfor %}
+                </div>
+            </div>
+
+            <!-- Log Status -->
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <!-- Log Files -->
+                <div class="status-card bg-white rounded-xl p-6 shadow-sm">
+                    <h3 class="text-lg font-semibold text-gray-800 mb-4">Log Files</h3>
+                    {% if log_status.error %}
+                        <p class="text-red-600">{{ log_status.error }}</p>
+                    {% else %}
+                        <div class="space-y-3">
+                            {% for name, size in log_status.files.items() %}
+                                <div class="flex justify-between items-center">
+                                    <span class="text-gray-600">{{ name }}.log</span>
+                                    <span class="font-medium">{{ '{:.1f}'.format(size / 1024) }} KB</span>
+                                </div>
+                            {% endfor %}
+                        </div>
+                    {% endif %}
+                </div>
+
+                <!-- Recent Errors -->
+                <div class="status-card bg-white rounded-xl p-6 shadow-sm">
+                    <h3 class="text-lg font-semibold text-gray-800 mb-4">Recent Errors</h3>
+                    <div class="space-y-2 max-h-60 overflow-y-auto">
+                        {% for error in last_errors %}
+                            <div class="text-sm text-red-600 p-2 bg-red-50 rounded">
+                                {{ error }}
+                            </div>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        // Sayfayı her 30 saniyede bir yenile
+        setTimeout(() => {
+            window.location.reload();
+        }, 30000);
+    </script>
+</body>
+</html> 

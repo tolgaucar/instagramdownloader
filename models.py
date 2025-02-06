@@ -34,6 +34,146 @@ Session = sessionmaker(bind=engine)
 def init_db():
     """Veritabanını başlat"""
     Base.metadata.create_all(engine)
+    
+    session = Session()
+    try:
+        # Eğer dil yoksa ekle
+        if not session.query(Language).first():
+            # Varsayılan dilleri ekle
+            en = Language(code='en', name='English', flag='🇺🇸')
+            tr = Language(code='tr', name='Türkçe', flag='🇹🇷')
+            
+            session.add(en)
+            session.add(tr)
+            session.flush()  # ID'leri almak için flush
+            
+            # İngilizce çeviriler
+            default_en_translations = {
+                'site_name': 'InstaTest',
+                'title': 'Instagram Media Downloader Tool',
+                'subtitle': 'Download Instagram stories, reels, and posts easily',
+                'input_placeholder': 'Insert Instagram link here',
+                'paste_button': 'Paste',
+                'download_button': 'Download',
+                'loading_text': 'Processing...',
+                'success_text': 'Download completed!',
+                'error_text': 'An error occurred',
+                'description': 'A powerful tool to download Instagram content with high quality and complete anonymity.',
+                'features_title': 'Tool Features',
+                'feature1_title': 'Multi-Format Support',
+                'feature1_desc': 'Download stories, reels, posts, and IGTV videos',
+                'feature2_title': 'High Quality',
+                'feature2_desc': 'Get the highest quality available for your downloads',
+                'feature3_title': 'Secure & Anonymous',
+                'feature3_desc': 'No login required, completely anonymous downloads',
+                'feature4_title': 'Fast Processing',
+                'feature4_desc': 'Advanced caching and processing for instant downloads',
+                'feature5_title': 'Batch Download',
+                'feature5_desc': 'Download multiple stories and posts at once',
+                'feature6_title': 'Preview Support',
+                'feature6_desc': 'Preview content before downloading',
+                'tool_section1_title': 'How It Works',
+                'tool_section1_desc': 'Our tool uses advanced algorithms to fetch and process Instagram content while maintaining the highest quality.',
+                'tool_section2_title': 'Usage Limits',
+                'tool_section2_desc': 'To ensure fair usage, there are some rate limits in place. Please wait a few minutes between bulk downloads.',
+                'tool_section3_title': 'Supported Content',
+                'tool_section3_desc': 'Currently supports public Instagram stories, reels, posts, and IGTV videos.',
+                'footer_about': 'About This Tool',
+                'footer_about_text': 'An advanced Instagram media downloader tool that respects privacy and delivers high-quality content.',
+                'footer_features': 'Features',
+                'footer_api': 'API Access',
+                'footer_docs': 'Documentation',
+                'footer_status': 'System Status',
+                'footer_links': 'Quick Links',
+                'footer_privacy': 'Privacy Policy',
+                'footer_terms': 'Terms of Service',
+                'footer_contact': 'Contact',
+                'footer_copyright': '© 2024 InstaTest. All rights reserved.',
+                'footer_disclaimer': 'This tool is not affiliated with Instagram.',
+                # SEO Section
+                'seo_title': 'What is Instagram Downloader?',
+                'seo_content': '''Instagram Downloader is a powerful online tool designed to help users save and download content from Instagram. As social media becomes increasingly central to our daily lives, the need to save and archive Instagram content has grown significantly. Whether you\'re a content creator, social media manager, or simply someone who wants to keep memorable posts, our Instagram downloader provides a reliable solution.
+
+Our tool supports various types of Instagram content, including photos, videos, stories, and reels. Unlike many other downloaders, we prioritize both quality and user privacy. All downloads maintain the original content quality, ensuring you get the best possible version of the media you want to save.
+
+One of the key advantages of using our Instagram downloader is its simplicity. You don\'t need any technical knowledge or additional software - just paste the URL of the content you want to download, and our system handles the rest. This makes it accessible to everyone, from social media professionals to casual Instagram users.
+
+We also understand the importance of privacy and security in today\'s digital age. Our downloader operates without requiring you to log in to your Instagram account, ensuring your personal information remains protected. Additionally, we don\'t store any of your download history or personal data.
+
+Whether you\'re creating a content portfolio, saving inspiration for future projects, or just wanting to keep precious memories, our Instagram downloader provides a fast, reliable, and secure way to save Instagram content.'''
+            }
+            
+            # Türkçe çeviriler
+            default_tr_translations = {
+                'site_name': 'InstaTest',
+                'title': 'Instagram Medya İndirme Aracı',
+                'subtitle': 'Instagram hikayelerini, reels ve gönderilerini kolayca indirin',
+                'input_placeholder': 'Instagram linkini buraya yapıştırın',
+                'paste_button': 'Yapıştır',
+                'download_button': 'İndir',
+                'loading_text': 'İşleniyor...',
+                'success_text': 'İndirme tamamlandı!',
+                'error_text': 'Bir hata oluştu',
+                'description': 'Instagram içeriklerini yüksek kalitede ve tam gizlilikle indirmenizi sağlayan güçlü bir araç.',
+                'features_title': 'Araç Özellikleri',
+                'feature1_title': 'Çoklu Format Desteği',
+                'feature1_desc': 'Hikayeleri, reels, gönderileri ve IGTV videolarını indirin',
+                'feature2_title': 'Yüksek Kalite',
+                'feature2_desc': 'İndirmeleriniz için mevcut en yüksek kaliteyi alın',
+                'feature3_title': 'Güvenli ve Anonim',
+                'feature3_desc': 'Giriş gerektirmez, tamamen anonim indirme',
+                'feature4_title': 'Hızlı İşlem',
+                'feature4_desc': 'Gelişmiş önbellek ve işleme ile anında indirme',
+                'feature5_title': 'Toplu İndirme',
+                'feature5_desc': 'Birden fazla hikaye ve gönderiyi aynı anda indirin',
+                'feature6_title': 'Önizleme Desteği',
+                'feature6_desc': 'İndirmeden önce içeriği önizleyin',
+                'tool_section1_title': 'Nasıl Çalışır',
+                'tool_section1_desc': 'Aracımız, en yüksek kaliteyi korurken Instagram içeriğini almak ve işlemek için gelişmiş algoritmalar kullanır.',
+                'tool_section2_title': 'Kullanım Limitleri',
+                'tool_section2_desc': 'Adil kullanımı sağlamak için bazı hız sınırları vardır. Lütfen toplu indirmeler arasında birkaç dakika bekleyin.',
+                'tool_section3_title': 'Desteklenen İçerikler',
+                'tool_section3_desc': 'Şu anda herkese açık Instagram hikayeleri, reels, gönderiler ve IGTV videolarını destekler.',
+                'footer_about': 'Bu Araç Hakkında',
+                'footer_about_text': 'Gizliliğe saygı duyan ve yüksek kaliteli içerik sunan gelişmiş bir Instagram medya indirme aracı.',
+                'footer_features': 'Özellikler',
+                'footer_api': 'API Erişimi',
+                'footer_docs': 'Dokümantasyon',
+                'footer_status': 'Sistem Durumu',
+                'footer_links': 'Hızlı Bağlantılar',
+                'footer_privacy': 'Gizlilik Politikası',
+                'footer_terms': 'Kullanım Koşulları',
+                'footer_contact': 'İletişim',
+                'footer_copyright': '© 2024 InstaTest. Tüm hakları saklıdır.',
+                'footer_disclaimer': 'Bu araç Instagram ile bağlantılı değildir.',
+                # SEO Section
+                'seo_title': 'Instagram İndirici Nedir?',
+                'seo_content': '''Instagram İndirici, kullanıcıların Instagram\'dan içerik kaydetmesine ve indirmesine yardımcı olmak için tasarlanmış güçlü bir çevrimiçi araçtır. Sosyal medya günlük hayatımızda giderek daha merkezi bir rol oynarken, Instagram içeriklerini kaydetme ve arşivleme ihtiyacı da önemli ölçüde artmıştır. İster bir içerik üreticisi, ister sosyal medya yöneticisi, isterse sadece unutulmaz gönderileri saklamak isteyen biri olun, Instagram indirme aracımız güvenilir bir çözüm sunar.
+
+Aracımız, fotoğraflar, videolar, hikayeler ve reels dahil olmak üzere çeşitli Instagram içerik türlerini destekler. Diğer birçok indiricinin aksine, hem kaliteye hem de kullanıcı gizliliğine öncelik veriyoruz. Tüm indirmeler orijinal içerik kalitesini korur ve kaydetmek istediğiniz medyanın mümkün olan en iyi versiyonunu almanızı sağlar.
+
+Instagram indiricimizin en önemli avantajlarından biri basitliğidir. Herhangi bir teknik bilgiye veya ek yazılıma ihtiyacınız yok - sadece indirmek istediğiniz içeriğin URL\'sini yapıştırın, sistemimiz gerisini halleder. Bu, sosyal medya profesyonellerinden günlük Instagram kullanıcılarına kadar herkes için erişilebilir olmasını sağlar.
+
+Günümüzün dijital çağında gizlilik ve güvenliğin önemini de anlıyoruz. İndiricimiz, Instagram hesabınıza giriş yapmanızı gerektirmeden çalışır ve kişisel bilgilerinizin korunmasını sağlar. Ayrıca, indirme geçmişinizi veya kişisel verilerinizi saklamıyoruz.
+
+İster bir içerik portföyü oluşturuyor, ister gelecekteki projeler için ilham kaynağı arıyor, ister sadece değerli anıları saklamak istiyor olun, Instagram indiricimiz, Instagram içeriğini kaydetmek için hızlı, güvenilir ve güvenli bir yol sunar.'''
+            }
+            
+            # Çevirileri ekle
+            for key, value in default_en_translations.items():
+                translation = Translation(language_id=en.id, key=key, value=value)
+                session.add(translation)
+            
+            for key, value in default_tr_translations.items():
+                translation = Translation(language_id=tr.id, key=key, value=value)
+                session.add(translation)
+            
+            session.commit()
+    except Exception as e:
+        session.rollback()
+        raise e
+    finally:
+        session.close()
 
 def add_language(code: str, name: str, flag: str, is_active: bool = True):
     """Yeni dil ekle"""

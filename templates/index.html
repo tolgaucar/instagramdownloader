@@ -9,29 +9,68 @@
 			rel="stylesheet"
 		/>
 		<script src="https://unpkg.com/axios/dist/axios.min.js"></script>
+		<style>
+			.gradient-bg {
+				background: linear-gradient(135deg, #4F46E5 0%, #7C3AED 100%);
+			}
+			.feature-card {
+				transition: all 0.3s ease;
+				border: 1px solid rgba(99, 102, 241, 0.1);
+			}
+			.feature-card:hover {
+				transform: translateY(-5px);
+				box-shadow: 0 10px 25px rgba(99, 102, 241, 0.1);
+				border-color: rgba(99, 102, 241, 0.3);
+			}
+			.tool-section {
+				background: linear-gradient(180deg, rgba(79, 70, 229, 0.03) 0%, rgba(124, 58, 237, 0.03) 100%);
+			}
+		</style>
 	</head>
-	<body class="bg-gray-100 min-h-screen">
-		<div class="container mx-auto px-4 py-8">
-			<!-- Dil seçici -->
-			<div class="flex justify-end mb-4 space-x-2">
-				{% for lang in languages %}
-				<a
-					href="/{{ lang.code }}"
-					class="inline-flex items-center px-3 py-2 border rounded-md {% if current_lang == lang.code %}bg-purple-600 text-white{% else %}bg-white text-gray-700{% endif %} hover:bg-purple-500 hover:text-white transition-colors duration-200"
-				>
-					<span class="mr-2">{{ lang.flag }}</span>
-					<span>{{ lang.name }}</span>
-				</a>
-				{% endfor %}
-			</div>
+	<body class="bg-gray-50">
+		<!-- Header -->
+		<header class="gradient-bg text-white">
+			<div class="container mx-auto px-4 py-16">
+				<!-- Dil seçici -->
+				<div class="flex justify-end mb-8">
+					<div class="relative">
+						<button id="language-dropdown" class="inline-flex items-center px-4 py-2 border rounded-md bg-white text-indigo-600 hover:bg-gray-50 focus:outline-none">
+							{% for lang in languages %}
+								{% if current_lang == lang.code %}
+									<span class="mr-2">{{ lang.flag }}</span>
+									<span>{{ lang.name }}</span>
+								{% endif %}
+							{% endfor %}
+							<svg class="w-5 h-5 ml-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+							</svg>
+						</button>
+						<div id="language-menu" class="hidden absolute right-0 mt-2 py-2 w-48 bg-white rounded-md shadow-xl z-50">
+							{% for lang in languages %}
+							<a
+								href="/{{ lang.code }}"
+								class="block px-4 py-2 text-gray-800 hover:bg-indigo-50 {% if current_lang == lang.code %}bg-indigo-50{% endif %}"
+							>
+								<span class="mr-2">{{ lang.flag }}</span>
+								<span>{{ lang.name }}</span>
+							</a>
+							{% endfor %}
+						</div>
+					</div>
+				</div>
 
-			<div class="max-w-3xl mx-auto">
-				<h1 class="text-4xl font-bold text-center mb-2 text-purple-600">
-					{{ translations.title }}
-				</h1>
-				<p class="text-center text-gray-600 mb-8">{{ translations.subtitle }}</p>
-				
-				<div class="bg-white rounded-lg shadow-lg p-6">
+				<div class="max-w-4xl mx-auto text-center">
+					<h1 class="text-5xl font-bold mb-4">{{ translations.title }}</h1>
+					<p class="text-xl opacity-90 mb-8">{{ translations.subtitle }}</p>
+					<p class="text-lg opacity-80 max-w-3xl mx-auto">{{ translations.description }}</p>
+				</div>
+			</div>
+		</header>
+
+		<main>
+			<!-- Ana Tool Bölümü -->
+			<section class="container mx-auto px-4 py-12">
+				<div class="max-w-3xl mx-auto bg-white rounded-2xl shadow-lg p-8">
 					<div class="mb-6">
 						<label
 							class="block text-gray-700 text-sm font-bold mb-2"
@@ -42,7 +81,7 @@
 						<input
 							type="text"
 							id="instagram-url"
-							class="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-600"
+							class="w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-600"
 							placeholder="{{ translations.input_placeholder }}"
 						/>
 					</div>
@@ -56,7 +95,7 @@
 									name="type"
 									value="post"
 									checked
-									class="form-radio text-purple-600"
+									class="form-radio text-indigo-600"
 								/>
 								<span class="ml-2">Post</span>
 							</label>
@@ -65,7 +104,7 @@
 									type="radio"
 									name="type"
 									value="reel"
-									class="form-radio text-purple-600"
+									class="form-radio text-indigo-600"
 								/>
 								<span class="ml-2">Reel</span>
 							</label>
@@ -74,7 +113,7 @@
 									type="radio"
 									name="type"
 									value="story"
-									class="form-radio text-purple-600"
+									class="form-radio text-indigo-600"
 								/>
 								<span class="ml-2">Story</span>
 							</label>
@@ -83,17 +122,12 @@
 
 					<!-- Story seçim bölümü -->
 					<div id="story-selector" class="mb-6 hidden">
-						<label class="block text-gray-700 text-sm font-bold mb-2">
-							{{ translations.story_selector_title }}
-						</label>
-						<div id="story-list" class="grid grid-cols-2 gap-4 mt-2">
-							<!-- Story'ler buraya dinamik olarak eklenecek -->
-						</div>
+						<div id="story-list" class="grid grid-cols-2 gap-4"></div>
 					</div>
 
-					<!-- Post/Reel önizleme bölümü -->
+					<!-- Önizleme bölümü -->
 					<div id="preview-section" class="mb-6 hidden">
-						<div class="bg-white rounded-lg shadow-md p-4">
+						<div class="bg-white rounded-lg shadow p-4">
 							<div class="flex flex-col md:flex-row md:items-start gap-4">
 								<div class="w-full md:w-2/5 lg:w-1/3">
 									<img 
@@ -103,7 +137,7 @@
 										class="w-full h-auto rounded-lg"
 										style="max-height: 300px; object-fit: cover;"
 									/>
-									<div id="preview-type-badge" class="mt-2 inline-block bg-purple-600 text-white text-xs px-2 py-1 rounded-full"></div>
+									<div id="preview-type-badge" class="mt-2 inline-block bg-indigo-600 text-white text-xs px-2 py-1 rounded-full"></div>
 								</div>
 								<div class="flex-1">
 									<div class="flex items-center space-x-2 mb-2">
@@ -133,7 +167,7 @@
 
 					<button
 						id="download-btn"
-						class="w-full bg-purple-600 text-white py-2 px-4 rounded-lg hover:bg-purple-700 transition duration-200"
+						class="w-full bg-indigo-600 text-white py-3 px-6 rounded-lg hover:bg-indigo-700 transition duration-200 font-semibold"
 					>
 						{{ translations.download_button }}
 					</button>
@@ -141,7 +175,7 @@
 					<div id="status" class="mt-4 hidden">
 						<div class="animate-pulse flex space-x-4">
 							<div class="flex-1 space-y-4 py-1">
-								<div class="h-4 bg-purple-200 rounded w-3/4"></div>
+								<div class="h-4 bg-indigo-200 rounded w-3/4"></div>
 							</div>
 						</div>
 					</div>
@@ -169,27 +203,147 @@
 						</div>
 					</div>
 				</div>
+			</section>
 
-				<!-- Nasıl kullanılır bölümü -->
-				<div class="mt-12">
-					<h2 class="text-2xl font-bold mb-4">{{ translations.how_to_title }}</h2>
-					<div class="bg-white rounded-lg shadow-lg p-6">
-						<div class="mb-6">
-							<h3 class="text-lg font-semibold mb-2">{{ translations.how_to_step1 }}</h3>
-							<p class="text-gray-600">{{ translations.how_to_step1_desc }}</p>
+			<!-- Özellikler -->
+			<section class="tool-section py-20">
+				<div class="container mx-auto px-4">
+					<h2 class="text-3xl font-bold text-center mb-12">{{ translations.features_title }}</h2>
+					<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8 max-w-6xl mx-auto">
+						<!-- Özellik 1 -->
+						<div class="feature-card bg-white rounded-xl p-6">
+							<div class="text-indigo-600 mb-4">
+								<svg class="w-12 h-12" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
+								</svg>
+							</div>
+							<h3 class="text-xl font-semibold mb-2">{{ translations.feature1_title }}</h3>
+							<p class="text-gray-600">{{ translations.feature1_desc }}</p>
+						</div>
+						<!-- Özellik 2 -->
+						<div class="feature-card bg-white rounded-xl p-6">
+							<div class="text-indigo-600 mb-4">
+								<svg class="w-12 h-12" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+								</svg>
+							</div>
+							<h3 class="text-xl font-semibold mb-2">{{ translations.feature2_title }}</h3>
+							<p class="text-gray-600">{{ translations.feature2_desc }}</p>
+						</div>
+						<!-- Özellik 3 -->
+						<div class="feature-card bg-white rounded-xl p-6">
+							<div class="text-indigo-600 mb-4">
+								<svg class="w-12 h-12" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path>
+								</svg>
+							</div>
+							<h3 class="text-xl font-semibold mb-2">{{ translations.feature3_title }}</h3>
+							<p class="text-gray-600">{{ translations.feature3_desc }}</p>
+						</div>
+						<!-- Özellik 4 -->
+						<div class="feature-card bg-white rounded-xl p-6">
+							<div class="text-indigo-600 mb-4">
+								<svg class="w-12 h-12" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
+								</svg>
+							</div>
+							<h3 class="text-xl font-semibold mb-2">{{ translations.feature4_title }}</h3>
+							<p class="text-gray-600">{{ translations.feature4_desc }}</p>
+						</div>
+						<!-- Özellik 5 -->
+						<div class="feature-card bg-white rounded-xl p-6">
+							<div class="text-indigo-600 mb-4">
+								<svg class="w-12 h-12" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7v10c0 2 1 3 3 3h10c2 0 3-1 3-3V7c0-2-1-3-3-3H7C5 4 4 5 4 7zm8-1v2m0 8v2"></path>
+								</svg>
+							</div>
+							<h3 class="text-xl font-semibold mb-2">{{ translations.feature5_title }}</h3>
+							<p class="text-gray-600">{{ translations.feature5_desc }}</p>
+						</div>
+						<!-- Özellik 6 -->
+						<div class="feature-card bg-white rounded-xl p-6">
+							<div class="text-indigo-600 mb-4">
+								<svg class="w-12 h-12" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"></path>
+								</svg>
+							</div>
+							<h3 class="text-xl font-semibold mb-2">{{ translations.feature6_title }}</h3>
+							<p class="text-gray-600">{{ translations.feature6_desc }}</p>
 						</div>
 					</div>
 				</div>
+			</section>
 
-				<!-- SSS bölümü -->
-				<div class="mt-12">
-					<h2 class="text-2xl font-bold mb-4">{{ translations.faq_title }}</h2>
-					<div class="bg-white rounded-lg shadow-lg p-6">
-						<p class="text-gray-600">{{ translations.faq_desc }}</p>
+			<!-- Tool Bilgi Bölümleri -->
+			<section class="py-20">
+				<div class="container mx-auto px-4">
+					<div class="grid grid-cols-1 md:grid-cols-3 gap-8 max-w-6xl mx-auto">
+						<!-- Bölüm 1 -->
+						<div class="bg-white rounded-xl p-6 shadow-sm">
+							<h3 class="text-xl font-semibold mb-4">{{ translations.tool_section1_title }}</h3>
+							<p class="text-gray-600">{{ translations.tool_section1_desc }}</p>
+						</div>
+						<!-- Bölüm 2 -->
+						<div class="bg-white rounded-xl p-6 shadow-sm">
+							<h3 class="text-xl font-semibold mb-4">{{ translations.tool_section2_title }}</h3>
+							<p class="text-gray-600">{{ translations.tool_section2_desc }}</p>
+						</div>
+						<!-- Bölüm 3 -->
+						<div class="bg-white rounded-xl p-6 shadow-sm">
+							<h3 class="text-xl font-semibold mb-4">{{ translations.tool_section3_title }}</h3>
+							<p class="text-gray-600">{{ translations.tool_section3_desc }}</p>
+						</div>
 					</div>
 				</div>
+			</section>
+
+			<!-- SEO Section -->
+			<section class="py-16 bg-white">
+				<div class="container mx-auto px-4 max-w-4xl">
+					<h2 class="text-3xl font-bold text-gray-800 mb-8">{{ translations.seo_title }}</h2>
+					<div class="prose prose-lg max-w-none text-gray-600 leading-relaxed space-y-6">
+						{% for paragraph in translations.seo_content.split('\n\n') %}
+							<p>{{ paragraph }}</p>
+						{% endfor %}
+					</div>
+				</div>
+			</section>
+		</main>
+
+		<!-- Footer -->
+		<footer class="bg-gray-900 text-gray-300">
+			<div class="container mx-auto px-4 py-12">
+				<div class="grid grid-cols-1 md:grid-cols-3 gap-8 mb-8">
+					<!-- Hakkında -->
+					<div>
+						<h3 class="text-white text-lg font-semibold mb-4">{{ translations.footer_about }}</h3>
+						<p class="text-gray-400">{{ translations.footer_about_text }}</p>
+					</div>
+					<!-- Özellikler -->
+					<div>
+						<h3 class="text-white text-lg font-semibold mb-4">{{ translations.footer_features }}</h3>
+						<ul class="space-y-2">
+							<li><a href="#" class="hover:text-white transition-colors duration-200">{{ translations.footer_api }}</a></li>
+							<li><a href="#" class="hover:text-white transition-colors duration-200">{{ translations.footer_docs }}</a></li>
+							<li><a href="/system-status" class="hover:text-white transition-colors duration-200">{{ translations.footer_status }}</a></li>
+						</ul>
+					</div>
+					<!-- Hızlı Bağlantılar -->
+					<div>
+						<h3 class="text-white text-lg font-semibold mb-4">{{ translations.footer_links }}</h3>
+						<ul class="space-y-2">
+							<li><a href="#" class="hover:text-white transition-colors duration-200">{{ translations.footer_privacy }}</a></li>
+							<li><a href="#" class="hover:text-white transition-colors duration-200">{{ translations.footer_terms }}</a></li>
+							<li><a href="#" class="hover:text-white transition-colors duration-200">{{ translations.footer_contact }}</a></li>
+						</ul>
+					</div>
+				</div>
+				<div class="border-t border-gray-800 pt-8 text-center">
+					<p class="text-gray-400 mb-2">{{ translations.footer_copyright }}</p>
+					<p class="text-gray-500 text-sm">{{ translations.footer_disclaimer }}</p>
+				</div>
 			</div>
-		</div>
+		</footer>
 
 		<script>
 			const downloadBtn = document.getElementById("download-btn");
@@ -201,6 +355,8 @@
 			const errorMessage = document.getElementById("error-message");
 			const storySelector = document.getElementById("story-selector");
 			const storyList = document.getElementById("story-list");
+			const languageDropdown = document.getElementById('language-dropdown');
+			const languageMenu = document.getElementById('language-menu');
 			
 			// Story seçildiğinde göster/gizle
 			document.querySelectorAll('input[name="type"]').forEach((radio) => {
@@ -559,6 +715,25 @@
 				resultDiv.classList.add("hidden");
 				errorDiv.classList.remove("hidden");
 			}
+
+			// Dropdown menüyü aç/kapat
+			languageDropdown.addEventListener('click', () => {
+				languageMenu.classList.toggle('hidden');
+			});
+			
+			// Sayfa herhangi bir yerine tıklandığında menüyü kapat
+			document.addEventListener('click', (event) => {
+				if (!languageDropdown.contains(event.target)) {
+					languageMenu.classList.add('hidden');
+				}
+			});
+			
+			// ESC tuşuna basıldığında menüyü kapat
+			document.addEventListener('keydown', (event) => {
+				if (event.key === 'Escape') {
+					languageMenu.classList.add('hidden');
+				}
+			});
 		</script>
 	</body>
 </html>

@@ -400,6 +400,125 @@ async def periodic_cleanup():
 
 app = FastAPI(title="InstaTest - Instagram Media Downloader")
 
+# Templates ve static dosyalar için klasörler
+templates = Jinja2Templates(directory="templates")
+os.makedirs("downloads", exist_ok=True)
+app.mount("/static", StaticFiles(directory="static"), name="static")
+app.mount("/downloads", StaticFiles(directory="downloads"), name="downloads")
+
+@app.get("/system-status", response_class=HTMLResponse, include_in_schema=True)
+async def system_status(request: Request):
+    """Sistem durumu sayfası"""
+    try:
+        # Redis durumunu kontrol et
+        redis_status = {"status": "OK", "error": None}
+        try:
+            redis_client.ping()
+            # Rate limit sayacını oku
+            rate_limits = redis_client.keys("rate_limit:*")
+            rate_limit_counts = {
+                key: redis_client.zcard(key)
+                for key in rate_limits
+            }
+            redis_status["rate_limits"] = rate_limit_counts
+        except Exception as e:
+            redis_status = {"status": "ERROR", "error": str(e)}
+
+        # Cookie durumunu kontrol et
+        cookie_status = {"status": "OK", "error": None}
+        try:
+            cookies = []
+            for cookie in cookie_manager.cookies:
+                cookie_id = cookie['id']
+                health_key = cookie_manager._get_cookie_health_key(cookie_id)
+                cooldown_key = cookie_manager._get_cookie_cooldown_key(cookie_id)
+                request_key = cookie_manager._get_request_count_key(cookie_id)
+                
+                health = redis_client.hgetall(health_key) or {}
+                cooldown = redis_client.get(cooldown_key)
+                request_count = redis_client.zcard(request_key)
+                
+                cookies.append({
+                    "id": cookie_id,
+                    "health": health,
+                    "cooldown": cooldown,
+                    "request_count": request_count
+                })
+            cookie_status["cookies"] = cookies
+        except Exception as e:
+            cookie_status = {"status": "ERROR", "error": str(e)}
+
+        # Sistem kaynaklarını kontrol et
+        import psutil
+        system_resources = {
+            "cpu_percent": psutil.cpu_percent(interval=1),
+            "memory": {
+                "total": psutil.virtual_memory().total,
+                "available": psutil.virtual_memory().available,
+                "percent": psutil.virtual_memory().percent
+            },
+            "disk": {
+                "total": psutil.disk_usage('/').total,
+                "used": psutil.disk_usage('/').used,
+                "free": psutil.disk_usage('/').free,
+                "percent": psutil.disk_usage('/').percent
+            }
+        }
+
+        # Log dosyalarının durumunu kontrol et
+        log_status = {"status": "OK", "error": None}
+        try:
+            log_files = {
+                "general": os.path.getsize("logs/instatest.log"),
+                "error": os.path.getsize("logs/error.log"),
+                "debug": os.path.getsize("logs/debug.log")
+            }
+            log_status["files"] = log_files
+        except Exception as e:
+            log_status = {"status": "ERROR", "error": str(e)}
+
+        # Son hataları getir
+        last_errors = []
+        try:
+            with open("logs/error.log", "r") as f:
+                errors = f.readlines()[-10:]  # Son 10 hata
+                last_errors = [error.strip() for error in errors]
+        except Exception as e:
+            last_errors = [f"Error reading log file: {str(e)}"]
+
+        # Veritabanı durumunu kontrol et
+        db_status = {"status": "OK", "error": None}
+        try:
+            session = Session()
+            language_count = session.query(Language).count()
+            translation_count = session.query(Translation).count()
+            db_status["stats"] = {
+                "languages": language_count,
+                "translations": translation_count
+            }
+        except Exception as e:
+            db_status = {"status": "ERROR", "error": str(e)}
+        finally:
+            session.close()
+
+        # Template'i render et
+        return templates.TemplateResponse(
+            "system_status.html",
+            {
+                "request": request,
+                "redis_status": redis_status,
+                "cookie_status": cookie_status,
+                "system_resources": system_resources,
+                "log_status": log_status,
+                "last_errors": last_errors,
+                "db_status": db_status
+            },
+            headers={"Cache-Control": "no-store"}  # Önbelleklemeyi devre dışı bırak
+        )
+    except Exception as e:
+        logger.error(f"System status page error: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 # Middleware'ler
 app.add_middleware(
     CORSMiddleware,
@@ -412,9 +531,9 @@ app.add_middleware(GZipMiddleware, minimum_size=1000)
 app.add_middleware(TrustedHostMiddleware, allowed_hosts=["*"])
 app.add_middleware(SessionMiddleware, secret_key="your-secret-key")
 
-# Middleware for request logging
+# Middleware for request logging and language redirection
 @app.middleware("http")
-async def log_requests(request: Request, call_next):
+async def combined_middleware(request: Request, call_next):
     # Request başlangıç zamanı
     start_time = datetime.now()
     
@@ -432,6 +551,14 @@ async def log_requests(request: Request, call_next):
             f"Request started: {request.method} {request.url.path}",
             extra=extra
         )
+        
+        # Ana sayfa yönlendirmesi
+        if request.url.path == "/":
+            return RedirectResponse(url="/en", status_code=302)
+            
+        # Dil kontrolü - sadece /en veya /tr gibi dil kodları için
+        if len(request.url.path.split('/')) == 2 and request.url.path not in ['/en', '/tr', '/system-status']:
+            return RedirectResponse(url="/en", status_code=302)
         
         # Request'i işle
         response = await call_next(request)
@@ -724,19 +851,6 @@ async def get_status(task_id: str):
         "result": task["result"]
     }
 
-@app.middleware("http")
-async def rate_limit_middleware(request: Request, call_next):
-    client_id = request.client.host
-    
-    if not rate_limiter.is_allowed(client_id):
-        raise HTTPException(
-            status_code=429,
-            detail="Too many requests. Please try again later."
-        )
-    
-    response = await call_next(request)
-    return response
-
 @app.get("/api/redis-test")
 async def test_redis():
     try:
@@ -764,15 +878,6 @@ async def test_redis():
             "status": "Redis error",
             "error": str(e)
         }
-
-# Templates ve static dosyalar için klasörler
-templates = Jinja2Templates(directory="templates")
-os.makedirs("downloads", exist_ok=True)
-app.mount("/static", StaticFiles(directory="static"), name="static")
-app.mount("/downloads", StaticFiles(directory="downloads"), name="downloads")
-
-# Veritabanını başlat
-init_db()
 
 def get_translations(lang_code: str) -> dict:
     """Belirtilen dil için çevirileri getir"""

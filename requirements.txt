@@ -13,4 +13,5 @@ instagram-scraper==1.11.0
 yt-dlp==2023.12.30
 selenium==4.15.2
 webdriver-manager==4.0.1
-redis>=5.0.1 
+redis>=5.0.1
+psutil>=5.9.0 
