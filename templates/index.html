@@ -91,6 +91,46 @@
 						</div>
 					</div>
 
+					<!-- Post/Reel önizleme bölümü -->
+					<div id="preview-section" class="mb-6 hidden">
+						<div class="bg-white rounded-lg shadow-md p-4">
+							<div class="flex flex-col md:flex-row md:items-start gap-4">
+								<div class="w-full md:w-2/5 lg:w-1/3">
+									<img 
+										id="preview-image" 
+										src="" 
+										alt="Preview" 
+										class="w-full h-auto rounded-lg"
+										style="max-height: 300px; object-fit: cover;"
+									/>
+									<div id="preview-type-badge" class="mt-2 inline-block bg-purple-600 text-white text-xs px-2 py-1 rounded-full"></div>
+								</div>
+								<div class="flex-1">
+									<div class="flex items-center space-x-2 mb-2">
+										<span id="preview-owner" class="font-semibold text-base"></span>
+										<span class="text-gray-500">•</span>
+										<span id="preview-timestamp" class="text-gray-500 text-sm"></span>
+									</div>
+									<p id="preview-caption" class="text-sm text-gray-600 mb-4 line-clamp-3"></p>
+									<div class="flex items-center space-x-6 text-sm text-gray-500">
+										<span id="preview-likes" class="flex items-center">
+											<svg class="w-5 h-5 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+												<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z"></path>
+											</svg>
+											<span class="font-medium"></span>
+										</span>
+										<span id="preview-comments" class="flex items-center">
+											<svg class="w-5 h-5 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+												<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"></path>
+											</svg>
+											<span class="font-medium"></span>
+										</span>
+									</div>
+								</div>
+							</div>
+						</div>
+					</div>
+
 					<button
 						id="download-btn"
 						class="w-full bg-purple-600 text-white py-2 px-4 rounded-lg hover:bg-purple-700 transition duration-200"
@@ -312,12 +352,58 @@
 				downloadMedia(url);
 			});
 
-			// URL input değişikliğini dinle - artık otomatik story kontrolü yapmıyoruz
+			// URL input değişikliğini dinle - otomatik search'ü kaldır
 			urlInput.addEventListener('input', (e) => {
-				// Sadece URL'yi kontrol et ve download butonunu aktif/pasif yap
 				const url = e.target.value.trim();
+				const type = document.querySelector('input[name="type"]:checked').value;
 				downloadBtn.disabled = !url;
+				
+				// Story seçiliyse önizleme gösterme
+				if (type === 'story') {
+					document.getElementById('preview-section').classList.add('hidden');
+				}
+				
+				// URL boşsa önizlemeyi gizle
+				if (!url) {
+					document.getElementById('preview-section').classList.add('hidden');
+				}
 			});
+
+			// Sayıları formatlama fonksiyonu
+			function formatNumber(num) {
+				if (num >= 1000000) {
+					return (num / 1000000).toFixed(1) + 'M';
+				}
+				if (num >= 1000) {
+					return (num / 1000).toFixed(1) + 'K';
+				}
+				return num.toString();
+			}
+
+			// Tarihi formatlama fonksiyonu
+			function formatDate(isoDate) {
+				const date = new Date(isoDate);
+				const now = new Date();
+				const diff = now - date;
+				
+				// 1 saatten az
+				if (diff < 3600000) {
+					const minutes = Math.floor(diff / 60000);
+					return `${minutes}m`;
+				}
+				// 1 günden az
+				if (diff < 86400000) {
+					const hours = Math.floor(diff / 3600000);
+					return `${hours}h`;
+				}
+				// 1 haftadan az
+				if (diff < 604800000) {
+					const days = Math.floor(diff / 86400000);
+					return `${days}d`;
+				}
+				// Diğer durumlar
+				return date.toLocaleDateString();
+			}
 
 			// Loading state yönetimi için fonksiyonlar
 			function showLoading(message) {
@@ -402,7 +488,7 @@
 				}
 
 				try {
-					showLoading('İşlem başlatılıyor...');
+					showLoading('Yükleniyor...');
 					
 					if (type === 'story') {
 						const username = extractUsername(url);
@@ -426,9 +512,38 @@
 							showError(response.data.message || 'Story\'ler alınamadı');
 						}
 					} else {
-						// Post veya Reel indirme
-						await downloadMedia(url);
-						resultDiv.classList.remove('hidden');
+						// Önce önizleme al
+						try {
+							const previewResponse = await axios.get(`/api/preview?url=${encodeURIComponent(url)}`);
+							const preview = previewResponse.data;
+							
+							// Önizleme bölümünü göster ve doldur
+							document.getElementById('preview-section').classList.remove('hidden');
+							
+							// Resmi yükle
+							const previewImage = document.getElementById('preview-image');
+							const proxyUrl = `/api/proxy-image?url=${encodeURIComponent(preview.thumbnail)}`;
+							previewImage.src = proxyUrl;
+							
+							// Diğer bilgileri doldur
+							document.getElementById('preview-type-badge').innerHTML = preview.type === 'video' ? 
+								'<svg class="w-4 h-4 inline-block" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>' :
+								'<svg class="w-4 h-4 inline-block" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>';
+							
+							document.getElementById('preview-owner').textContent = preview.owner;
+							document.getElementById('preview-caption').textContent = preview.caption;
+							document.getElementById('preview-likes').querySelector('span').textContent = formatNumber(preview.likes);
+							document.getElementById('preview-comments').querySelector('span').textContent = formatNumber(preview.comments);
+							document.getElementById('preview-timestamp').textContent = formatDate(preview.timestamp);
+							
+							// Medyayı indir
+							await downloadMedia(url);
+							resultDiv.classList.remove('hidden');
+							
+						} catch (previewError) {
+							console.error('Preview error:', previewError);
+							showError(previewError.response?.data?.detail || "Önizleme alınamadı");
+						}
 					}
 				} catch (error) {
 					console.error('Error:', error);

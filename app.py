@@ -1087,31 +1087,44 @@ async def proxy_image(url: str):
             # Her denemede yeni bir cookie al
             new_cookies = cookie_manager.get_next_cookie()
             if not new_cookies:
-                raise HTTPException(status_code=429, detail="Tüm cookie'ler kullanımda veya dinleniyor. Lütfen birkaç dakika sonra tekrar deneyin.")
+                raise HTTPException(status_code=429, detail="Tüm cookie'ler kullanımda veya dinleniyor")
             
             # Instagram için gerekli header'ları ayarla
             headers = {
-                'authority': 'www.instagram.com',
-                'accept': 'image/webp,image/apng,image/*,*/*;q=0.8',
-                'accept-language': 'en-US,en;q=0.9',
-                'origin': 'https://www.instagram.com',
-                'referer': 'https://www.instagram.com/',
-                'sec-fetch-dest': 'image',
-                'sec-fetch-mode': 'no-cors',
-                'sec-fetch-site': 'same-site',
-                'user-agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+                'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Accept': 'image/webp,image/apng,image/*,*/*;q=0.8',
+                'Accept-Language': 'en-US,en;q=0.9',
+                'Origin': 'https://www.instagram.com',
+                'Referer': 'https://www.instagram.com/',
+                'Sec-Fetch-Dest': 'image',
+                'Sec-Fetch-Mode': 'no-cors',
+                'Sec-Fetch-Site': 'cross-site',
+                'Connection': 'keep-alive'
             }
-            
-            cookies_dict = {k: v for k, v in new_cookies.items()}
             
             async with aiohttp.ClientSession() as session:
                 try:
-                    async with session.get(url, headers=headers, cookies=cookies_dict, allow_redirects=True, timeout=30) as response:
+                    async with session.get(url, headers=headers, allow_redirects=True, timeout=30) as response:
                         if response.status == 200:
                             cookie_manager.mark_cookie_success(new_cookies)
                             image_data = await response.read()
+                            
+                            # Response header'larını ayarla
+                            response_headers = {
+                                'Content-Type': response.headers.get('content-type', 'image/jpeg'),
+                                'Cache-Control': 'public, max-age=31536000',
+                                'Access-Control-Allow-Origin': '*',
+                                'Access-Control-Allow-Methods': 'GET, OPTIONS',
+                                'Access-Control-Allow-Headers': '*',
+                                'Cross-Origin-Resource-Policy': 'cross-origin',
+                                'Cross-Origin-Embedder-Policy': 'require-corp',
+                                'Cross-Origin-Opener-Policy': 'same-origin',
+                                'Timing-Allow-Origin': '*'
+                            }
+                            
                             return Response(
                                 content=image_data,
+                                headers=response_headers,
                                 media_type=response.headers.get('content-type', 'image/jpeg')
                             )
                         elif response.status == 403:
@@ -1137,7 +1150,108 @@ async def proxy_image(url: str):
                 continue
             last_error = str(e)
     
-    raise HTTPException(status_code=500, detail=f"Image proxy error: {last_error}")
+    # Eğer resim alınamazsa varsayılan bir resim döndür
+    fallback_svg = '''
+    <svg width="400" height="500" xmlns="http://www.w3.org/2000/svg">
+        <rect width="100%" height="100%" fill="#f3f4f6"/>
+        <text x="50%" y="50%" font-family="Arial" font-size="20" fill="#9ca3af" text-anchor="middle" dy=".3em">
+            Önizleme Yüklenemedi
+        </text>
+    </svg>
+    '''
+    
+    return Response(
+        content=fallback_svg,
+        media_type='image/svg+xml',
+        headers={
+            'Cache-Control': 'no-cache',
+            'Access-Control-Allow-Origin': '*',
+            'Access-Control-Allow-Methods': 'GET, OPTIONS',
+            'Access-Control-Allow-Headers': '*',
+            'Cross-Origin-Resource-Policy': 'cross-origin',
+            'Cross-Origin-Embedder-Policy': 'require-corp',
+            'Cross-Origin-Opener-Policy': 'same-origin',
+            'Timing-Allow-Origin': '*'
+        }
+    )
+
+@app.get("/api/preview")
+async def get_preview(request: Request):
+    """Post veya reel önizlemesi al"""
+    try:
+        url = request.query_params.get('url')
+        if not url:
+            raise HTTPException(status_code=400, detail='URL is required')
+
+        shortcode = get_shortcode_from_url(url)
+        if not shortcode:
+            raise HTTPException(status_code=400, detail='Invalid Instagram URL')
+
+        # Story URL'si ise hata döndür
+        if shortcode.startswith('story_'):
+            raise HTTPException(status_code=400, detail='Stories are not supported for preview')
+
+        max_retries = 3
+        last_error = None
+
+        for attempt in range(max_retries):
+            try:
+                # Her denemede yeni bir cookie al
+                new_cookies = cookie_manager.get_next_cookie()
+                if not new_cookies:
+                    raise HTTPException(status_code=429, detail="Tüm cookie'ler kullanımda veya dinleniyor")
+
+                loader = await loader_pool.get_loader()
+                loader_pool.load_cookies_to_loader(loader, new_cookies)
+
+                post = instaloader.Post.from_shortcode(loader.context, shortcode)
+                
+                # Thumbnail ve video URL'lerini güvenli bir şekilde al
+                if post.is_video:
+                    try:
+                        thumbnail_url = post.video_thumbnail_url
+                        video_url = post.video_url
+                    except:
+                        try:
+                            node = next(iter(post.get_sidecar_nodes()), post)
+                            thumbnail_url = node.url
+                            video_url = node.video_url if hasattr(node, 'video_url') else None
+                        except:
+                            thumbnail_url = post.url
+                            video_url = None
+                else:
+                    thumbnail_url = post.url
+                    video_url = None
+                
+                preview_info = {
+                    "type": "video" if post.is_video else "photo",
+                    "thumbnail": thumbnail_url,
+                    "video_url": video_url,
+                    "caption": post.caption if post.caption else "",
+                    "likes": post.likes if hasattr(post, 'likes') else 0,
+                    "comments": post.comments if hasattr(post, 'comments') else 0,
+                    "owner": post.owner_username,
+                    "timestamp": post.date.isoformat()
+                }
+
+                cookie_manager.mark_cookie_success(new_cookies)
+                return preview_info
+
+            except Exception as e:
+                if "rate_limit" in str(e).lower():
+                    cookie_manager.mark_cookie_rate_limited(new_cookies)
+                elif "login_required" in str(e).lower() or "checkpoint_required" in str(e).lower():
+                    cookie_manager.mark_cookie_challenge(new_cookies)
+                
+                if attempt < max_retries - 1:
+                    continue
+                last_error = str(e)
+
+        raise HTTPException(status_code=500, detail=f"Failed to get preview: {last_error}")
+
+    except Exception as e:
+        logger.error(f"Preview error: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":
     import uvicorn
