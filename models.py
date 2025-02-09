@@ -1,6 +1,9 @@
-from sqlalchemy import create_engine, Column, Integer, String, Boolean, ForeignKey
+from sqlalchemy import create_engine, Column, Integer, String, Boolean, ForeignKey, DateTime
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, relationship
+import os
+from datetime import datetime
+import bcrypt
 
 Base = declarative_base()
 
@@ -25,6 +28,16 @@ class Translation(Base):
     
     language = relationship("Language", back_populates="translations")
 
+class Admin(Base):
+    __tablename__ = 'admins'
+    
+    id = Column(Integer, primary_key=True)
+    username = Column(String(50), unique=True, nullable=False)
+    password = Column(String(255), nullable=False)
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    last_login = Column(DateTime)
+
 # Veritabanı bağlantısı
 engine = create_engine('sqlite:///database.db')
 
@@ -37,6 +50,22 @@ def init_db():
     
     session = Session()
     try:
+        # Eğer admin yoksa ekle
+        if not session.query(Admin).first():
+            print("Creating default admin user...")
+            # Şifreyi hashle
+            salt = bcrypt.gensalt()
+            hashed = bcrypt.hashpw("admin123".encode('utf-8'), salt)
+            
+            admin = Admin(
+                username="admin",
+                password=hashed.decode('utf-8'),
+                is_active=True
+            )
+            session.add(admin)
+            session.commit()  # Önce admin'i commit et
+            print("Default admin user created successfully!")
+            
         # Eğer dil yoksa ekle
         if not session.query(Language).first():
             # Varsayılan dilleri ekle
@@ -179,10 +208,23 @@ def add_language(code: str, name: str, flag: str, is_active: bool = True):
     """Yeni dil ekle"""
     session = Session()
     try:
+        # Önce bu dil kodunun var olup olmadığını kontrol et
+        existing = session.query(Language).filter_by(code=code).first()
+        if existing:
+            session.rollback()
+            raise Exception(f"Language with code {code} already exists")
+            
+        # Yeni dil oluştur
         language = Language(code=code, name=name, flag=flag, is_active=is_active)
         session.add(language)
         session.commit()
-        return language
+        
+        # Yeni eklenen dili getir
+        new_language = session.query(Language).filter_by(code=code).first()
+        return new_language
+    except Exception as e:
+        session.rollback()
+        raise e
     finally:
         session.close()
 
@@ -262,4 +304,86 @@ def update_language(code: str, name: str = None, flag: str = None, is_active: bo
             return language
         return None
     finally:
-        session.close() 
+        session.close()
+
+def add_admin(username: str, password: str) -> Admin:
+    """Yeni admin ekle"""
+    session = Session()
+    try:
+        # Şifreyi hashle
+        salt = bcrypt.gensalt()
+        hashed = bcrypt.hashpw(password.encode('utf-8'), salt)
+        
+        admin = Admin(
+            username=username, 
+            password=hashed.decode('utf-8'),
+            is_active=True
+        )
+        session.add(admin)
+        session.commit()
+        return admin
+    finally:
+        session.close()
+
+def get_admin(username: str) -> Admin:
+    """Admin bilgilerini getir"""
+    session = Session()
+    try:
+        return session.query(Admin).filter_by(username=username, is_active=True).first()
+    finally:
+        session.close()
+
+def update_admin_last_login(admin_id: int):
+    """Admin son giriş zamanını güncelle"""
+    session = Session()
+    try:
+        admin = session.query(Admin).get(admin_id)
+        if admin:
+            admin.last_login = datetime.utcnow()
+            session.commit()
+    finally:
+        session.close()
+
+def delete_admin(admin_id: int):
+    """Admin sil (soft delete)"""
+    session = Session()
+    try:
+        admin = session.query(Admin).get(admin_id)
+        if admin:
+            admin.is_active = False
+            session.commit()
+    finally:
+        session.close()
+
+def get_all_admins():
+    """Tüm aktif adminleri getir"""
+    session = Session()
+    try:
+        return session.query(Admin).filter_by(is_active=True).all()
+    finally:
+        session.close()
+
+def update_admin_password(admin_id: int, new_password: str):
+    """Admin şifresini güncelle"""
+    session = Session()
+    try:
+        admin = session.query(Admin).get(admin_id)
+        if admin:
+            # Şifreyi hashle
+            salt = bcrypt.gensalt()
+            hashed = bcrypt.hashpw(new_password.encode('utf-8'), salt)
+            admin.password = hashed.decode('utf-8')
+            session.commit()
+            return True
+        return False
+    finally:
+        session.close()
+
+def verify_admin_password(admin: Admin, password: str) -> bool:
+    """Admin şifresini doğrula"""
+    try:
+        stored_hash = admin.password.encode('utf-8')
+        return bcrypt.checkpw(password.encode('utf-8'), stored_hash)
+    except Exception as e:
+        print(f"Password verification error: {str(e)}")
+        return False 

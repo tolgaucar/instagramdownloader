@@ -1,0 +1,454 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Admin Panel - InstaTest</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet" />
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://unpkg.com/axios/dist/axios.min.js"></script>
+</head>
+<body class="bg-gray-50">
+    <div class="min-h-screen">
+        <!-- Header -->
+        <nav class="bg-white shadow">
+            <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                <div class="flex justify-between h-16">
+                    <div class="flex">
+                        <div class="flex-shrink-0 flex items-center">
+                            <h1 class="text-xl font-bold">InstaTest Admin</h1>
+                        </div>
+                    </div>
+                    <div class="flex items-center">
+                        <span class="text-gray-500 mr-4">{{ current_admin.username }}</span>
+                        <a href="/system-status" class="text-blue-600 hover:text-blue-800 mr-4">System Status</a>
+                        <a href="/admin/logout" class="text-red-600 hover:text-red-800">Logout</a>
+                    </div>
+                </div>
+            </div>
+        </nav>
+
+        <!-- Main content -->
+        <div class="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
+            <!-- Tabs -->
+            <div class="mb-4 border-b border-gray-200">
+                <nav class="-mb-px flex" aria-label="Tabs">
+                    <button onclick="showTab('languages')" class="tab-btn border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 w-1/4 py-4 px-1 text-center border-b-2 font-medium text-sm">
+                        Languages & Translations
+                    </button>
+                    <button onclick="showTab('cookies')" class="tab-btn border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 w-1/4 py-4 px-1 text-center border-b-2 font-medium text-sm">
+                        Cookies
+                    </button>
+                    <button onclick="showTab('admins')" class="tab-btn border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 w-1/4 py-4 px-1 text-center border-b-2 font-medium text-sm">
+                        Admins
+                    </button>
+                </nav>
+            </div>
+
+            <!-- Languages Tab -->
+            <div id="languages" class="tab-content">
+                <div class="bg-white shadow rounded-lg p-6">
+                    <h2 class="text-lg font-medium mb-4">Add New Language</h2>
+                    <form id="addLanguageForm" class="space-y-4">
+                        <div class="grid grid-cols-3 gap-4">
+                            <input type="text" name="code" placeholder="Language Code (e.g., en)" class="border rounded p-2">
+                            <input type="text" name="name" placeholder="Language Name" class="border rounded p-2">
+                            <input type="text" name="flag" placeholder="Flag Emoji" class="border rounded p-2">
+                        </div>
+                        <button type="submit" class="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600">Add Language</button>
+                    </form>
+                </div>
+
+                <div class="mt-6 bg-white shadow rounded-lg p-6">
+                    <h2 class="text-lg font-medium mb-4">Manage Translations</h2>
+                    <select id="languageSelect" class="border rounded p-2 mb-4">
+                        {% for lang in languages %}
+                        <option value="{{ lang.code }}">{{ lang.name }} {{ lang.flag }}</option>
+                        {% endfor %}
+                    </select>
+                    <div class="flex gap-2 mb-4">
+                        <button onclick="loadDefaultTranslations()" class="bg-gray-500 text-white px-4 py-2 rounded hover:bg-gray-600">Load Default</button>
+                        <button onclick="loadCurrentTranslations()" class="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600">Load Current</button>
+                    </div>
+                    <div id="translationsEditor" class="mt-4">
+                        <textarea id="translationsJson" rows="10" class="w-full border rounded p-2 font-mono text-sm"></textarea>
+                        <button onclick="updateTranslations()" class="mt-4 bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600">Update Translations</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Cookies Tab -->
+            <div id="cookies" class="tab-content hidden">
+                <div class="bg-white shadow rounded-lg p-6">
+                    <h2 class="text-lg font-medium mb-4">Add New Cookie</h2>
+                    <form id="addCookieForm" class="space-y-4">
+                        <input type="text" name="id" placeholder="Cookie ID" class="w-full border rounded p-2">
+                        <textarea name="data" placeholder="Cookie Data (JSON)" rows="5" class="w-full border rounded p-2 font-mono text-sm"></textarea>
+                        <button type="submit" class="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600">Add Cookie</button>
+                    </form>
+                </div>
+
+                <div class="mt-6 bg-white shadow rounded-lg p-6">
+                    <h2 class="text-lg font-medium mb-4">Active Cookies</h2>
+                    <div class="grid grid-cols-1 gap-4">
+                        {% for cookie in cookies %}
+                        <div class="border rounded p-4" data-cookie-id="{{ cookie.id }}">
+                            <div class="flex justify-between items-center">
+                                <div>
+                                    <h3 class="font-medium">{{ cookie.id }}</h3>
+                                    <p class="text-sm {{ 'text-red-500' if cookie.cooldown else 'text-green-500' }}">
+                                        Status: {{ 'Cooling Down' if cookie.cooldown else 'Active' }}
+                                    </p>
+                                </div>
+                                <button onclick="deleteCookie('{{ cookie.id }}')" class="text-red-600 hover:text-red-800">Delete</button>
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+
+            <!-- Admins Tab -->
+            <div id="admins" class="tab-content hidden">
+                <!-- Şifre Değiştirme Formu -->
+                <div class="bg-white shadow rounded-lg p-6 mb-6">
+                    <h2 class="text-lg font-medium mb-4">Şifre Değiştir</h2>
+                    <form id="changePasswordForm" class="space-y-4">
+                        <div class="grid grid-cols-2 gap-4">
+                            <input type="password" name="current_password" placeholder="Mevcut Şifre" class="border rounded p-2" required>
+                            <input type="password" name="new_password" placeholder="Yeni Şifre" class="border rounded p-2" required>
+                        </div>
+                        <button type="submit" class="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600">Şifreyi Güncelle</button>
+                    </form>
+                </div>
+
+                <!-- Yeni Admin Ekleme -->
+                <div class="bg-white shadow rounded-lg p-6">
+                    <h2 class="text-lg font-medium mb-4">Add New Admin</h2>
+                    <form id="addAdminForm" class="space-y-4">
+                        <div class="grid grid-cols-2 gap-4">
+                            <input type="text" name="username" placeholder="Username" class="border rounded p-2">
+                            <input type="password" name="password" placeholder="Password" class="border rounded p-2">
+                        </div>
+                        <button type="submit" class="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600">Add Admin</button>
+                    </form>
+                </div>
+
+                <div class="mt-6 bg-white shadow rounded-lg p-6">
+                    <h2 class="text-lg font-medium mb-4">Active Admins</h2>
+                    <div class="grid grid-cols-1 gap-4">
+                        {% for admin in admins %}
+                        <div class="border rounded p-4">
+                            <div class="flex justify-between items-center">
+                                <div>
+                                    <h3 class="font-medium">{{ admin.username }}</h3>
+                                    <p class="text-sm text-gray-500">Created: {{ admin.created_at.strftime('%Y-%m-%d %H:%M:%S') }}</p>
+                                    {% if admin.last_login %}
+                                    <p class="text-sm text-gray-500">Last Login: {{ admin.last_login.strftime('%Y-%m-%d %H:%M:%S') }}</p>
+                                    {% endif %}
+                                </div>
+                                {% if admin.id != current_admin.id %}
+                                <button onclick="deleteAdmin('{{ admin.id }}')" class="text-red-600 hover:text-red-800">Delete</button>
+                                {% endif %}
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Tab switching
+        function showTab(tabId) {
+            document.querySelectorAll('.tab-content').forEach(tab => tab.classList.add('hidden'));
+            document.getElementById(tabId).classList.remove('hidden');
+            
+            document.querySelectorAll('.tab-btn').forEach(btn => {
+                btn.classList.remove('border-blue-500', 'text-blue-600');
+                btn.classList.add('border-transparent', 'text-gray-500');
+            });
+            event.currentTarget.classList.remove('border-transparent', 'text-gray-500');
+            event.currentTarget.classList.add('border-blue-500', 'text-blue-600');
+
+            // Cookie tab'ı seçildiğinde listeyi güncelle
+            if (tabId === 'cookies') {
+                updateCookieList();
+            }
+        }
+
+        // Load translations for selected language
+        document.getElementById('languageSelect').addEventListener('change', async function() {
+            await loadCurrentTranslations();
+        });
+
+        // Load default translations
+        async function loadDefaultTranslations() {
+            const defaultTranslations = {
+                'site_name': 'InstaTest',
+                'title': 'Instagram Media Downloader Tool',
+                'subtitle': 'Download Instagram stories, reels, and posts easily',
+                'input_placeholder': 'Insert Instagram link here',
+                'paste_button': 'Paste',
+                'download_button': 'Download',
+                'loading_text': 'Processing...',
+                'success_text': 'Download completed!',
+                'error_text': 'An error occurred',
+                'description': 'A powerful tool to download Instagram content with high quality and complete anonymity.',
+                'features_title': 'Tool Features',
+                'feature1_title': 'Multi-Format Support',
+                'feature1_desc': 'Download stories, reels, posts, and IGTV videos',
+                'feature2_title': 'High Quality',
+                'feature2_desc': 'Get the highest quality available for your downloads',
+                'feature3_title': 'Secure & Anonymous',
+                'feature3_desc': 'No login required, completely anonymous downloads',
+                'feature4_title': 'Fast Processing',
+                'feature4_desc': 'Advanced caching and processing for instant downloads',
+                'feature5_title': 'Batch Download',
+                'feature5_desc': 'Download multiple stories and posts at once',
+                'feature6_title': 'Preview Support',
+                'feature6_desc': 'Preview content before downloading',
+                'tool_section1_title': 'How It Works',
+                'tool_section1_desc': 'Our tool uses advanced algorithms to fetch and process Instagram content while maintaining the highest quality.',
+                'tool_section2_title': 'Usage Limits',
+                'tool_section2_desc': 'To ensure fair usage, there are some rate limits in place. Please wait a few minutes between bulk downloads.',
+                'tool_section3_title': 'Supported Content',
+                'tool_section3_desc': 'Currently supports public Instagram stories, reels, posts, and IGTV videos.',
+                'footer_about': 'About This Tool',
+                'footer_about_text': 'An advanced Instagram media downloader tool that respects privacy and delivers high-quality content.',
+                'footer_features': 'Features',
+                'footer_api': 'API Access',
+                'footer_docs': 'Documentation',
+                'footer_status': 'System Status',
+                'footer_links': 'Quick Links',
+                'footer_privacy': 'Privacy Policy',
+                'footer_terms': 'Terms of Service',
+                'footer_contact': 'Contact',
+                'footer_copyright': '© 2024 InstaTest. All rights reserved.',
+                'footer_disclaimer': 'This tool is not affiliated with Instagram.',
+                'seo_title': 'What is Instagram Downloader?',
+                'seo_content': 'Instagram Downloader is a powerful online tool designed to help users save and download content from Instagram. As social media becomes increasingly central to our daily lives, the need to save and archive Instagram content has grown significantly. Whether you\'re a content creator, social media manager, or simply someone who wants to keep memorable posts, our Instagram downloader provides a reliable solution.\n\nOur tool supports various types of Instagram content, including photos, videos, stories, and reels. Unlike many other downloaders, we prioritize both quality and user privacy. All downloads maintain the original content quality, ensuring you get the best possible version of the media you want to save.\n\nOne of the key advantages of using our Instagram downloader is its simplicity. You don\'t need any technical knowledge or additional software - just paste the URL of the content you want to download, and our system handles the rest. This makes it accessible to everyone, from social media professionals to casual Instagram users.\n\nWe also understand the importance of privacy and security in today\'s digital age. Our downloader operates without requiring you to log in to your Instagram account, ensuring your personal information remains protected. Additionally, we don\'t store any of your download history or personal data.\n\nWhether you\'re creating a content portfolio, saving inspiration for future projects, or just wanting to keep precious memories, our Instagram downloader provides a fast, reliable, and secure way to save Instagram content.',
+                'supported_urls_title': 'Supported URLs:',
+                'supported_urls_text': 'instagram.com/p/... (posts), instagram.com/reel/... (reels), instagram.com/stories/... (stories)',
+                'how_to_title': 'How to download Story from Instagram?',
+                'how_to_step1': 'Copy the URL',
+                'how_to_step1_desc': 'First, open the Instagram Story you wish to download. Then, click on the (...) icon if you are using an iPhone or (:) if you are using an Android. From the popup menu, select the "Copy Link" option to copy the Story\'s URL.',
+                'faq_title': 'Frequently asked questions(FAQ)',
+                'faq_desc': 'This FAQ provides information on frequent questions or concerns about the instatest.com downloader. if you can\'t find the answer to your question, feel free to ask through email on our contact page.',
+                'download_start_text': 'Your download will start automatically.',
+                'click_here': 'Click here'
+            };
+            
+            document.getElementById('translationsJson').value = JSON.stringify(defaultTranslations, null, 2);
+        }
+
+        // Load current translations
+        async function loadCurrentTranslations() {
+            const langCode = document.getElementById('languageSelect').value;
+            const response = await fetch(`/api/admin/translations/${langCode}`);
+            const translations = await response.json();
+            document.getElementById('translationsJson').value = JSON.stringify(translations, null, 2);
+        }
+
+        // Update translations
+        async function updateTranslations() {
+            const langCode = document.getElementById('languageSelect').value;
+            const translations = JSON.parse(document.getElementById('translationsJson').value);
+            
+            const response = await fetch(`/api/admin/translations/${langCode}`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({translations})
+            });
+            
+            if (response.ok) {
+                alert('Translations updated successfully');
+            } else {
+                alert('Failed to update translations');
+            }
+        }
+
+        // Add language form
+        document.getElementById('addLanguageForm').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            const formData = new FormData(this);
+            const data = {
+                code: formData.get('code'),
+                name: formData.get('name'),
+                flag: formData.get('flag')
+            };
+            
+            const response = await fetch('/api/admin/languages', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(data)
+            });
+            
+            if (response.ok) {
+                alert('Language added successfully');
+                location.reload();
+            } else {
+                alert('Failed to add language');
+            }
+        });
+
+        // Cookie listesini güncelleyen fonksiyon
+        async function updateCookieList() {
+            try {
+                const response = await fetch('/api/admin/cookies');
+                const cookies = await response.json();
+                
+                const cookieContainer = document.querySelector('.grid.grid-cols-1.gap-4');
+                cookieContainer.innerHTML = ''; // Mevcut listeyi temizle
+                
+                cookies.forEach(cookie => {
+                    const cookieElement = document.createElement('div');
+                    cookieElement.className = 'border rounded p-4';
+                    cookieElement.setAttribute('data-cookie-id', cookie.id);
+                    
+                    cookieElement.innerHTML = `
+                        <div class="flex justify-between items-center">
+                            <div>
+                                <h3 class="font-medium">${cookie.id}</h3>
+                                <p class="text-sm ${cookie.cooldown ? 'text-red-500' : 'text-green-500'}">
+                                    Status: ${cookie.cooldown ? 'Cooling Down' : 'Active'}
+                                </p>
+                            </div>
+                            <button onclick="deleteCookie('${cookie.id}')" class="text-red-600 hover:text-red-800">Delete</button>
+                        </div>
+                    `;
+                    
+                    cookieContainer.appendChild(cookieElement);
+                });
+            } catch (error) {
+                console.error('Failed to update cookie list:', error);
+            }
+        }
+
+        // Delete cookie
+        async function deleteCookie(cookieId) {
+            if (!confirm('Are you sure you want to delete this cookie?')) return;
+            
+            try {
+                const response = await fetch(`/api/admin/cookies/${cookieId}`, {
+                    method: 'DELETE'
+                });
+                
+                if (response.ok) {
+                    // Cookie listesini güncelle
+                    await updateCookieList();
+                } else {
+                    const error = await response.json();
+                    alert(error.detail || 'Failed to delete cookie');
+                }
+            } catch (error) {
+                alert('Failed to delete cookie');
+            }
+        }
+
+        // Add cookie form
+        document.getElementById('addCookieForm').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            const formData = new FormData(this);
+            const data = {
+                id: formData.get('id'),
+                data: JSON.parse(formData.get('data'))
+            };
+            
+            const response = await fetch('/api/admin/cookies', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(data)
+            });
+            
+            if (response.ok) {
+                alert('Cookie added successfully');
+                this.reset();
+                await updateCookieList(); // Listeyi güncelle
+            } else {
+                alert('Failed to add cookie');
+            }
+        });
+
+        // Sayfa yüklendiğinde cookie listesini güncelle
+        document.addEventListener('DOMContentLoaded', function() {
+            const cookiesTab = document.getElementById('cookies');
+            if (!cookiesTab.classList.contains('hidden')) {
+                updateCookieList();
+            }
+        });
+
+        // Add admin form
+        document.getElementById('addAdminForm').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            const formData = new FormData(this);
+            const data = {
+                username: formData.get('username'),
+                password: formData.get('password')
+            };
+            
+            const response = await fetch('/api/admin/admins', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(data)
+            });
+            
+            if (response.ok) {
+                alert('Admin added successfully');
+                location.reload();
+            } else {
+                alert('Failed to add admin');
+            }
+        });
+
+        // Delete admin
+        async function deleteAdmin(adminId) {
+            if (!confirm('Are you sure you want to delete this admin?')) return;
+            
+            const response = await fetch(`/api/admin/admins/${adminId}`, {
+                method: 'DELETE'
+            });
+            
+            if (response.ok) {
+                alert('Admin deleted successfully');
+                location.reload();
+            } else {
+                alert('Failed to delete admin');
+            }
+        }
+
+        // Şifre değiştirme formu
+        document.getElementById('changePasswordForm').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            const formData = new FormData(this);
+            const data = {
+                current_password: formData.get('current_password'),
+                new_password: formData.get('new_password')
+            };
+            
+            try {
+                const response = await fetch('/api/admin/password', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(data)
+                });
+                
+                const result = await response.json();
+                
+                if (response.ok) {
+                    alert('Şifre başarıyla güncellendi');
+                    this.reset();
+                } else {
+                    alert(result.detail || 'Şifre güncellenirken bir hata oluştu');
+                }
+            } catch (error) {
+                alert('Şifre güncellenirken bir hata oluştu');
+            }
+        });
+
+        // Load initial translations
+        document.getElementById('languageSelect').dispatchEvent(new Event('change'));
+    </script>
+</body>
+</html> 

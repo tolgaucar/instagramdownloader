@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Request, Form
+from fastapi import FastAPI, HTTPException, Request, Form, Depends, Cookie
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, StreamingResponse, Response, HTMLResponse, RedirectResponse
@@ -28,7 +28,15 @@ import aiohttp
 import io
 import requests
 from starlette.middleware.sessions import SessionMiddleware
-from models import Session, Language, Translation, init_db, add_language, add_translation
+from models import (
+    Session, Language, Translation, Admin,
+    init_db, add_language, get_language, get_translations_for_language,
+    update_translation, add_admin, get_admin, update_admin_last_login,
+    delete_admin, get_all_admins, verify_admin_password, update_admin_password
+)
+from fastapi.security import HTTPBasic, HTTPBasicCredentials
+import secrets
+import jwt
 
 # Logging konfigürasyonu
 def setup_logging():
@@ -100,8 +108,7 @@ logger = setup_logging()
 
 # Request modeli
 class DownloadRequest(BaseModel):
-    url: str
-    type: Optional[str] = "post"  # post, reel, story, igtv
+    url: str  # Only URL is needed, type will be auto-detected
 
 # Instaloader instance pool
 class InstaloaderPool:
@@ -151,169 +158,161 @@ class InstaloaderPool:
 
 class CookieManager:
     def __init__(self):
-        self.cookies = []
-        self.current_index = 0
-        self.max_requests_per_hour = 100
-        self.redis = redis_client
-        self.load_cookies()
+        self.cookies_dir = "cookies"
+        self.redis_client = redis.Redis(host='localhost', port=6379, db=0)
+        
+        # Create cookies directory if it doesn't exist
+        if not os.path.exists(self.cookies_dir):
+            os.makedirs(self.cookies_dir)
+
+    def load_cookies(self) -> dict:
+        """Load all cookies from the cookies directory"""
+        cookies = {}
+        try:
+            cookie_files = [f for f in os.listdir(self.cookies_dir) if f.endswith('.json')]
+            
+            for cookie_file in cookie_files:
+                cookie_id = cookie_file.replace('.json', '')
+                cookie_path = os.path.join(self.cookies_dir, cookie_file)
+                
+                try:
+                    with open(cookie_path, 'r') as f:
+                        cookie_data = json.load(f)
+                        cookies[cookie_id] = cookie_data
+                except Exception as e:
+                    print(f"Error loading cookie {cookie_id}: {str(e)}")
+                    continue
+            
+            return cookies
+        except Exception as e:
+            print(f"Error loading cookies: {str(e)}")
+            return {}
 
     def _get_cookie_health_key(self, cookie_id: str) -> str:
-        return f"cookie_health:{cookie_id}"
-
+        return f"cookie:{cookie_id}:health"
+    
     def _get_cookie_cooldown_key(self, cookie_id: str) -> str:
-        return f"cookie_cooldown:{cookie_id}"
-
+        return f"cookie:{cookie_id}:cooldown"
+    
     def _get_request_count_key(self, cookie_id: str) -> str:
-        return f"cookie_requests:{cookie_id}"
+        return f"cookie:{cookie_id}:requests"
 
-    def load_cookies(self):
-        cookie_dir = Path("cookies")
-        if not cookie_dir.exists():
-            raise Exception("Cookies directory not found")
+    def get_cookie_health(self, cookie_id: str) -> dict:
+        health_key = self._get_cookie_health_key(cookie_id)
+        health_data = self.redis_client.hgetall(health_key)
+        return {k.decode('utf-8'): v.decode('utf-8') for k, v in health_data.items()} if health_data else {
+            'successes': '0',
+            'challenges': '0',
+            'last_success': ''
+        }
 
-        # Tüm cookie'leri yükle
-        for cookie_file in cookie_dir.glob("*.json"):
-            with open(cookie_file) as f:
-                try:
-                    cookie_data = json.load(f)
-                    cookie_id = cookie_file.stem  # account1, account2, vs.
-                    self.cookies.append({
-                        'id': cookie_id,
-                        'data': cookie_data,
-                        'file': cookie_file
-                    })
-                    
-                    # Redis'te cookie sağlık durumunu kontrol et, yoksa oluştur
-                    health_key = self._get_cookie_health_key(cookie_id)
-                    if not self.redis.exists(health_key):
-                        self.redis.hset(health_key, mapping={
-                            'challenges': 0,
-                            'successes': 0,
-                            'last_success': '',
-                            'last_challenge': '',
-                            'last_used': ''
-                        })
-                        
-                except json.JSONDecodeError:
-                    logger.error(f"Failed to parse cookie file: {cookie_file}")
+    def is_cookie_in_cooldown(self, cookie_id: str) -> bool:
+        return bool(self.redis_client.exists(self._get_cookie_cooldown_key(cookie_id)))
 
-        if not self.cookies:
-            raise Exception("No valid cookies found")
+    def get_request_count(self, cookie_id: str) -> int:
+        count = self.redis_client.get(self._get_request_count_key(cookie_id))
+        return int(count) if count else 0
 
-    def get_next_cookie(self):
-        """En uygun cookie'yi seç"""
-        now = datetime.now()
-        available_cookies = []
-
-        for cookie in self.cookies:
-            cookie_id = cookie['id']
-            health_key = self._get_cookie_health_key(cookie_id)
-            cooldown_key = self._get_cookie_cooldown_key(cookie_id)
-            request_key = self._get_request_count_key(cookie_id)
-
-            # Cooldown kontrolü
-            cooldown = self.redis.get(cooldown_key)
-            if cooldown and float(cooldown) > now.timestamp():
-                continue
-
-            # Son 1 saatteki istek sayısını kontrol et
-            hour_ago = now - timedelta(hours=1)
-            request_count = self.redis.zcount(request_key, min=hour_ago.timestamp(), max=float('inf'))
-            if request_count >= self.max_requests_per_hour:
-                continue
-
-            # Cookie sağlık durumunu al
-            health = self.redis.hgetall(health_key)
-            if not health:
-                continue
-
-            # Sağlık puanını hesapla
-            health_score = int(health.get('successes', 0)) - (int(health.get('challenges', 0)) * 2)
+    def get_cookies(self) -> list:
+        cookies = []
+        try:
+            # Get list of all cookie files
+            cookie_files = [f for f in os.listdir(self.cookies_dir) if f.endswith('.json')]
             
-            # Son kullanımdan beri geçen süreye göre bonus puan
-            last_used = health.get('last_used')
-            if last_used:
-                last_used_time = datetime.fromisoformat(last_used)
-                minutes_since_last_use = (now - last_used_time).total_seconds() / 60
-                if minutes_since_last_use > 5:  # 5 dakikadan fazla dinlenmişse bonus
-                    health_score += min(minutes_since_last_use / 5, 10)
+            for cookie_file in cookie_files:
+                cookie_id = cookie_file.replace('.json', '')
+                cookie_path = os.path.join(self.cookies_dir, cookie_file)
+                
+                if os.path.exists(cookie_path):
+                    # Get cookie health and status
+                    health = self.get_cookie_health(cookie_id)
+                    cooldown = self.is_cookie_in_cooldown(cookie_id)
+                    request_count = self.get_request_count(cookie_id)
+                    
+                    # Calculate success rate
+                    total_requests = int(health.get('successes', 0)) + int(health.get('challenges', 0))
+                    success_rate = (int(health.get('successes', 0)) / total_requests * 100) if total_requests > 0 else 0
+                    
+                    cookies.append({
+                        'id': cookie_id,
+                        'health': health,
+                        'cooldown': cooldown,
+                        'request_count': request_count,
+                        'success_rate': success_rate
+                    })
+            
+            return cookies
+        except Exception as e:
+            print(f"Error getting cookies: {str(e)}")
+            return []
 
-            # Rate limit durumuna göre puan
-            rate_limit_score = (self.max_requests_per_hour - request_count) / self.max_requests_per_hour * 10
-            health_score += rate_limit_score
-
-            available_cookies.append((cookie, health_score))
-
-        if not available_cookies:
+    def get_next_cookie(self) -> dict:
+        """Get the next available cookie"""
+        try:
+            cookie_files = [f for f in os.listdir(self.cookies_dir) if f.endswith('.json')]
+            
+            for cookie_file in cookie_files:
+                cookie_id = cookie_file.replace('.json', '')
+                cookie_path = os.path.join(self.cookies_dir, cookie_file)
+                
+                # Skip if cookie is in cooldown
+                if self.is_cookie_in_cooldown(cookie_id):
+                    continue
+                
+                # Load cookie data
+                try:
+                    with open(cookie_path, 'r') as f:
+                        cookie_data = json.load(f)
+                        return cookie_data
+                except:
+                    continue
+            
+            return None
+        except Exception as e:
+            print(f"Error getting next cookie: {str(e)}")
             return None
 
-        # En yüksek puanlı cookie'yi seç
-        best_cookie = max(available_cookies, key=lambda x: x[1])[0]
-        cookie_id = best_cookie['id']
+    def mark_cookie_success(self, cookie_data: dict):
+        """Mark a cookie as successful"""
+        try:
+            cookie_id = cookie_data.get('ds_user_id')
+            if not cookie_id:
+                return
+            
+            health_key = self._get_cookie_health_key(cookie_id)
+            self.redis_client.hincrby(health_key, 'successes', 1)
+            self.redis_client.hset(health_key, 'last_success', datetime.now().isoformat())
+        except Exception as e:
+            print(f"Error marking cookie success: {str(e)}")
 
-        # Cookie kullanım bilgilerini güncelle
-        health_key = self._get_cookie_health_key(cookie_id)
-        request_key = self._get_request_count_key(cookie_id)
-        
-        self.redis.hset(health_key, 'last_used', now.isoformat())
-        self.redis.zadd(request_key, {str(now.timestamp()): now.timestamp()})
-        self.redis.expire(request_key, 3600)  # 1 saat sonra expire olsun
+    def mark_cookie_challenge(self, cookie_data: dict):
+        """Mark a cookie as challenged"""
+        try:
+            cookie_id = cookie_data.get('ds_user_id')
+            if not cookie_id:
+                return
+            
+            health_key = self._get_cookie_health_key(cookie_id)
+            self.redis_client.hincrby(health_key, 'challenges', 1)
+            
+            # Put cookie in cooldown for 30 minutes
+            cooldown_key = self._get_cookie_cooldown_key(cookie_id)
+            self.redis_client.setex(cooldown_key, 1800, '1')
+        except Exception as e:
+            print(f"Error marking cookie challenge: {str(e)}")
 
-        return best_cookie['data']
-
-    def mark_cookie_success(self, cookie_data):
-        """Cookie başarılı olduğunda çağrılır"""
-        for cookie in self.cookies:
-            if cookie['data'] == cookie_data:
-                cookie_id = cookie['id']
-                health_key = self._get_cookie_health_key(cookie_id)
-                cooldown_key = self._get_cookie_cooldown_key(cookie_id)
-                
-                # Başarı sayısını artır ve son başarı zamanını güncelle
-                self.redis.hincrby(health_key, 'successes', 1)
-                self.redis.hset(health_key, 'last_success', datetime.now().isoformat())
-                
-                # Cooldown'u kaldır
-                self.redis.delete(cooldown_key)
-                break
-
-    def mark_cookie_challenge(self, cookie_data):
-        """Cookie challenge aldığında çağrılır"""
-        now = datetime.now()
-        for cookie in self.cookies:
-            if cookie['data'] == cookie_data:
-                cookie_id = cookie['id']
-                health_key = self._get_cookie_health_key(cookie_id)
-                cooldown_key = self._get_cookie_cooldown_key(cookie_id)
-                
-                # Challenge sayısını artır ve son challenge zamanını güncelle
-                challenges = int(self.redis.hincrby(health_key, 'challenges', 1))
-                self.redis.hset(health_key, 'last_challenge', now.isoformat())
-                
-                # Challenge sayısına göre dinlenme süresi belirle
-                cooldown_minutes = min(30 * (2 ** (challenges - 1)), 720)  # Max 12 saat
-                cooldown_time = now + timedelta(minutes=cooldown_minutes)
-                self.redis.set(cooldown_key, cooldown_time.timestamp())
-                self.redis.expire(cooldown_key, int(cooldown_minutes * 60))
-                
-                logger.info(f"Cookie {cookie_id} will cool down for {cooldown_minutes} minutes")
-                break
-
-    def mark_cookie_rate_limited(self, cookie_data):
-        """Cookie rate limit aldığında çağrılır"""
-        now = datetime.now()
-        for cookie in self.cookies:
-            if cookie['data'] == cookie_data:
-                cookie_id = cookie['id']
-                cooldown_key = self._get_cookie_cooldown_key(cookie_id)
-                
-                # 30 dakika dinlenmeye al
-                cooldown_time = now + timedelta(minutes=30)
-                self.redis.set(cooldown_key, cooldown_time.timestamp())
-                self.redis.expire(cooldown_key, 1800)  # 30 dakika
-                
-                logger.info(f"Cookie {cookie_id} rate limited, cooling down for 30 minutes")
-                break
+    def mark_cookie_rate_limited(self, cookie_data: dict):
+        """Mark a cookie as rate limited"""
+        try:
+            cookie_id = cookie_data.get('ds_user_id')
+            if not cookie_id:
+                return
+            
+            # Put cookie in cooldown for 15 minutes
+            cooldown_key = self._get_cookie_cooldown_key(cookie_id)
+            self.redis_client.setex(cooldown_key, 900, '1')
+        except Exception as e:
+            print(f"Error marking cookie rate limited: {str(e)}")
 
 # Redis bağlantısı
 redis_client = redis.Redis(
@@ -406,9 +405,382 @@ os.makedirs("downloads", exist_ok=True)
 app.mount("/static", StaticFiles(directory="static"), name="static")
 app.mount("/downloads", StaticFiles(directory="downloads"), name="downloads")
 
+# Admin kimlik doğrulama
+def get_current_admin_from_token(admin_token: str = Cookie(None)):
+    """JWT token'dan admin bilgilerini al"""
+    if not admin_token:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    
+    try:
+        payload = jwt.decode(admin_token, "your-secret-key", algorithms=["HS256"])
+        admin = get_admin(payload["sub"])
+        if not admin:
+            raise HTTPException(status_code=401, detail="Invalid token")
+        return admin
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(status_code=401, detail="Token expired")
+    except jwt.JWTError:
+        raise HTTPException(status_code=401, detail="Invalid token")
+
+# Admin login için rate limit
+class AdminLoginRateLimiter:
+    def __init__(self, redis_client, max_attempts=5, window_minutes=15, lockout_minutes=30):
+        self.redis = redis_client
+        self.max_attempts = max_attempts
+        self.window_minutes = window_minutes
+        self.lockout_minutes = lockout_minutes
+
+    def _get_attempt_key(self, username: str, ip: str) -> str:
+        return f"admin_login_attempts:{username}:{ip}"
+
+    def _get_lockout_key(self, username: str, ip: str) -> str:
+        return f"admin_login_lockout:{username}:{ip}"
+
+    def is_locked_out(self, username: str, ip: str) -> bool:
+        lockout_key = self._get_lockout_key(username, ip)
+        return bool(self.redis.get(lockout_key))
+
+    def record_attempt(self, username: str, ip: str, success: bool):
+        attempt_key = self._get_attempt_key(username, ip)
+        lockout_key = self._get_lockout_key(username, ip)
+
+        if success:
+            # Başarılı girişte tüm kayıtları temizle
+            self.redis.delete(attempt_key, lockout_key)
+            return
+
+        # Başarısız girişi kaydet
+        attempts = self.redis.incr(attempt_key)
+        self.redis.expire(attempt_key, self.window_minutes * 60)
+
+        # Maksimum deneme sayısı aşıldıysa kilitle
+        if attempts >= self.max_attempts:
+            self.redis.setex(lockout_key, self.lockout_minutes * 60, "1")
+            self.redis.delete(attempt_key)
+
+    def get_remaining_attempts(self, username: str, ip: str) -> int:
+        attempt_key = self._get_attempt_key(username, ip)
+        attempts = int(self.redis.get(attempt_key) or 0)
+        return max(0, self.max_attempts - attempts)
+
+# Rate limiter instance'ı oluştur
+admin_login_limiter = AdminLoginRateLimiter(redis_client)
+
+# Admin login sayfası
+@app.get("/admin/login", response_class=HTMLResponse)
+async def admin_login_page(request: Request, error: str = None):
+    """Admin login sayfası"""
+    return templates.TemplateResponse(
+        "admin_login.html",
+        {"request": request, "error": error}
+    )
+
+# Admin login işlemi
+@app.post("/admin/login")
+async def admin_login(
+    request: Request,
+    username: str = Form(...),
+    password: str = Form(...)
+):
+    """Admin login işlemi"""
+    client_ip = request.client.host
+
+    # Brute force koruması
+    if admin_login_limiter.is_locked_out(username, client_ip):
+        return templates.TemplateResponse(
+            "admin_login.html",
+            {
+                "request": request,
+                "error": f"Çok fazla başarısız deneme. Lütfen {admin_login_limiter.lockout_minutes} dakika bekleyin."
+            }
+        )
+
+    admin = get_admin(username)
+    if not admin or not verify_admin_password(admin, password):
+        # Başarısız girişi kaydet
+        admin_login_limiter.record_attempt(username, client_ip, success=False)
+        remaining = admin_login_limiter.get_remaining_attempts(username, client_ip)
+        
+        return templates.TemplateResponse(
+            "admin_login.html",
+            {
+                "request": request,
+                "error": f"Geçersiz kullanıcı adı veya şifre. Kalan deneme hakkı: {remaining}"
+            }
+        )
+    
+    # Başarılı girişi kaydet
+    admin_login_limiter.record_attempt(username, client_ip, success=True)
+    
+    # JWT token oluştur
+    token_data = {
+        "sub": admin.username,
+        "id": admin.id,
+        "exp": datetime.utcnow() + timedelta(days=1)
+    }
+    token = jwt.encode(token_data, "your-secret-key", algorithm="HS256")
+    
+    # Son giriş zamanını güncelle
+    update_admin_last_login(admin.id)
+    
+    # Token'ı cookie olarak kaydet ve yönlendir
+    response = RedirectResponse(url="/admin", status_code=302)
+    response.set_cookie(
+        key="admin_token",
+        value=token,
+        httponly=True,
+        max_age=86400,  # 1 gün
+        secure=False  # HTTPS için True yapılmalı
+    )
+    return response
+
+# Admin sayfası - token ile authentication
+@app.get("/admin", response_class=HTMLResponse)
+async def admin_panel(
+    request: Request,
+    admin: Admin = Depends(get_current_admin_from_token)
+):
+    """Admin panel sayfası"""
+    try:
+        # Aktif dilleri getir
+        languages = get_languages()
+        
+        # Cookie bilgilerini getir
+        cookies = cookie_manager.get_cookies()
+        
+        # Admin listesini getir
+        admins = get_all_admins()
+        
+        return templates.TemplateResponse(
+            "admin.html",
+            {
+                "request": request,
+                "languages": languages,
+                "cookies": cookies,
+                "admins": admins,
+                "current_admin": admin
+            }
+        )
+    except Exception as e:
+        logger.error(f"Admin panel error: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+# Admin logout
+@app.get("/admin/logout")
+async def admin_logout():
+    """Admin logout işlemi"""
+    response = RedirectResponse(url="/admin/login", status_code=302)
+    response.delete_cookie("admin_token")
+    return response
+
+# Admin yönetimi endpoint'leri
+@app.post("/api/admin/admins")
+async def add_admin_endpoint(
+    request: Request,
+    admin_token: str = Cookie(None)
+):
+    """Yeni admin ekle"""
+    if not admin_token:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+        
+    try:
+        # Token'ı doğrula
+        try:
+            payload = jwt.decode(admin_token, "your-secret-key", algorithms=["HS256"])
+            admin = get_admin(payload["sub"])
+            if not admin:
+                raise HTTPException(status_code=401, detail="Invalid token")
+        except (jwt.ExpiredSignatureError, jwt.JWTError):
+            raise HTTPException(status_code=401, detail="Invalid token")
+            
+        data = await request.json()
+        username = data.get('username')
+        password = data.get('password')
+        
+        if not all([username, password]):
+            raise HTTPException(status_code=400, detail="Missing required fields")
+        
+        new_admin = add_admin(username, password)
+        return {"success": True, "admin": {
+            "id": new_admin.id,
+            "username": new_admin.username,
+            "created_at": new_admin.created_at.isoformat()
+        }}
+    except Exception as e:
+        logger.error(f"Add admin error: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.delete("/api/admin/admins/{admin_id}")
+async def delete_admin_endpoint(
+    admin_id: int,
+    admin_token: str = Cookie(None)
+):
+    """Admin sil"""
+    if not admin_token:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+        
+    try:
+        # Token'ı doğrula
+        try:
+            payload = jwt.decode(admin_token, "your-secret-key", algorithms=["HS256"])
+            admin = get_admin(payload["sub"])
+            if not admin:
+                raise HTTPException(status_code=401, detail="Invalid token")
+        except (jwt.ExpiredSignatureError, jwt.JWTError):
+            raise HTTPException(status_code=401, detail="Invalid token")
+            
+        if admin.id == admin_id:
+            raise HTTPException(status_code=400, detail="Cannot delete yourself")
+        
+        delete_admin(admin_id)
+        return {"success": True}
+    except Exception as e:
+        logger.error(f"Delete admin error: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+# Dil yönetimi endpoint'leri
+@app.post("/api/admin/languages")
+async def add_language_endpoint(
+    request: Request,
+    username: str = Depends(get_current_admin_from_token)
+):
+    """Yeni dil ekle"""
+    try:
+        data = await request.json()
+        code = data.get('code')
+        name = data.get('name')
+        flag = data.get('flag')
+        
+        if not all([code, name, flag]):
+            raise HTTPException(status_code=400, detail="Missing required fields")
+        
+        language = add_language(code, name, flag)
+        return {"success": True, "language": {
+            "code": language.code,
+            "name": language.name,
+            "flag": language.flag
+        }}
+    except Exception as e:
+        logger.error(f"Add language error: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/admin/translations/{lang_code}")
+async def get_translations_endpoint(
+    lang_code: str,
+    username: str = Depends(get_current_admin_from_token)
+):
+    """Dil çevirilerini getir"""
+    try:
+        translations = get_translations(lang_code)
+        return translations
+    except Exception as e:
+        logger.error(f"Get translations error: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/admin/translations/{lang_code}")
+async def update_translations_endpoint(
+    lang_code: str,
+    request: Request,
+    username: str = Depends(get_current_admin_from_token)
+):
+    """Dil çevirilerini güncelle"""
+    try:
+        data = await request.json()
+        translations = data.get('translations')
+        
+        if not translations:
+            raise HTTPException(status_code=400, detail="No translations provided")
+        
+        language = get_language(lang_code)
+        if not language:
+            raise HTTPException(status_code=404, detail="Language not found")
+        
+        # Çevirileri güncelle
+        for key, value in translations.items():
+            update_translation(language.id, key, value)
+        
+        return {"success": True}
+    except Exception as e:
+        logger.error(f"Update translations error: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+# Cookie yönetimi endpoint'leri
+@app.post("/api/admin/cookies")
+async def add_cookie_endpoint(
+    request: Request,
+    username: str = Depends(get_current_admin_from_token)
+):
+    """Yeni cookie ekle"""
+    try:
+        data = await request.json()
+        cookie_id = data.get('id')
+        cookie_data = data.get('data')
+        
+        if not all([cookie_id, cookie_data]):
+            raise HTTPException(status_code=400, detail="Missing required fields")
+        
+        # Cookie dosyasını kaydet
+        cookie_path = Path("cookies") / f"{cookie_id}.json"
+        cookie_path.parent.mkdir(exist_ok=True)
+        
+        with open(cookie_path, 'w') as f:
+            json.dump(cookie_data, f, indent=2)
+        
+        # Cookie manager'ı yeniden yükle
+        cookie_manager.load_cookies()
+        
+        return {"success": True}
+    except Exception as e:
+        logger.error(f"Add cookie error: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.delete("/api/admin/cookies/{cookie_id}")
+async def delete_cookie_endpoint(
+    cookie_id: str,
+    username: str = Depends(get_current_admin_from_token)
+):
+    """Cookie sil"""
+    try:
+        cookie_path = Path("cookies") / f"{cookie_id}.json"
+        if not cookie_path.exists():
+            raise HTTPException(status_code=404, detail="Cookie not found")
+        
+        # Redis'teki cookie verilerini temizle
+        health_key = cookie_manager._get_cookie_health_key(cookie_id)
+        cooldown_key = cookie_manager._get_cookie_cooldown_key(cookie_id)
+        request_key = cookie_manager._get_request_count_key(cookie_id)
+        
+        redis_client.delete(health_key, cooldown_key, request_key)
+        
+        # Cookie dosyasını sil
+        cookie_path.unlink()
+        
+        # Cookie manager'ı yeniden yükle
+        cookie_manager.load_cookies()
+        
+        return {"success": True}
+    except Exception as e:
+        logger.error(f"Delete cookie error: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/admin/cookies")
+async def get_cookies_endpoint(
+    username: str = Depends(get_current_admin_from_token)
+):
+    try:
+        cookie_manager = CookieManager()
+        cookies = cookie_manager.get_cookies()
+        
+        return cookies
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.get("/system-status", response_class=HTMLResponse, include_in_schema=True)
-async def system_status(request: Request):
-    """Sistem durumu sayfası"""
+async def system_status(
+    request: Request,
+    admin: Admin = Depends(get_current_admin_from_token)
+):
+    """Sistem durumu sayfası - Sadece admin erişebilir"""
     try:
         # Redis durumunu kontrol et
         redis_status = {"status": "OK", "error": None}
@@ -535,61 +907,36 @@ app.add_middleware(SessionMiddleware, secret_key="your-secret-key")
 @app.middleware("http")
 async def combined_middleware(request: Request, call_next):
     # Request başlangıç zamanı
-    start_time = datetime.now()
+    start_time = time.time()
     
-    # Extra log bilgileri
-    extra = {
-        'client_ip': request.client.host,
-        'endpoint': request.url.path,
-        'response_time': 0,
-        'status_code': 0
+    # Sistem durumu ve admin sayfası için yönlendirme yapma
+    if request.url.path in ["/system-status", "/admin"]:
+        return await call_next(request)
+    
+    # Root path kontrolü
+    if request.url.path == "/":
+        return RedirectResponse(url="/en", status_code=302)
+    
+    response = await call_next(request)
+    
+    # Response süresini hesapla ve logla
+    process_time = time.time() - start_time
+    response.headers["X-Process-Time"] = str(process_time)
+    
+    # Log formatı
+    log_dict = {
+        "timestamp": datetime.now().isoformat(),
+        "client_ip": request.client.host,
+        "method": request.method,
+        "path": request.url.path,
+        "status_code": response.status_code,
+        "process_time": process_time
     }
     
-    try:
-        # Request detaylarını logla
-        logger.info(
-            f"Request started: {request.method} {request.url.path}",
-            extra=extra
-        )
-        
-        # Ana sayfa yönlendirmesi
-        if request.url.path == "/":
-            return RedirectResponse(url="/en", status_code=302)
-            
-        # Dil kontrolü - sadece /en veya /tr gibi dil kodları için
-        if len(request.url.path.split('/')) == 2 and request.url.path not in ['/en', '/tr', '/system-status']:
-            return RedirectResponse(url="/en", status_code=302)
-        
-        # Request'i işle
-        response = await call_next(request)
-        
-        # Response süresini hesapla
-        response_time = (datetime.now() - start_time).total_seconds() * 1000
-        extra['response_time'] = response_time
-        extra['status_code'] = response.status_code
-        
-        # Başarılı response'u logla
-        logger.info(
-            f"Request completed: {request.method} {request.url.path}",
-            extra=extra
-        )
-        
-        return response
-        
-    except Exception as e:
-        # Hata süresini hesapla
-        response_time = (datetime.now() - start_time).total_seconds() * 1000
-        extra['response_time'] = response_time
-        extra['status_code'] = 500
-        
-        # Hatayı detaylı şekilde logla
-        logger.error(
-            f"Request failed: {request.method} {request.url.path}\n"
-            f"Error: {str(e)}\n"
-            f"Traceback: {traceback.format_exc()}",
-            extra=extra
-        )
-        raise
+    # JSON formatında log
+    logger.info(json.dumps(log_dict))
+    
+    return response
 
 @app.on_event("startup")
 async def startup_event():
@@ -603,6 +950,19 @@ async def startup_event():
     # Veritabanını başlat
     init_db()
     
+    # Varsayılan admin kullanıcısını ekle
+    session = Session()
+    try:
+        if not session.query(Admin).first():
+            admin_username = os.getenv("ADMIN_USERNAME", "admin")
+            admin_password = os.getenv("ADMIN_PASSWORD", "admin123")
+            add_admin(admin_username, admin_password)
+            logger.info("Default admin user created")
+    except Exception as e:
+        logger.error(f"Error creating default admin: {str(e)}")
+    finally:
+        session.close()
+    
     # Veritabanı boşsa varsayılan dilleri ve çevirileri ekle
     session = Session()
     try:
@@ -614,39 +974,43 @@ async def startup_event():
             # İngilizce çeviriler
             default_en_translations = {
                 'site_name': 'InstaTest',
-                'title': 'Instagram Story Saver',
-                'subtitle': 'Download your Instagram story and highlights easily!',
-                'input_placeholder': 'Insert instagram link here',
+                'title': 'Instagram Media Downloader',
+                'subtitle': 'Download Instagram stories, reels, and posts easily',
+                'input_placeholder': 'Insert Instagram link here',
                 'paste_button': 'Paste',
                 'download_button': 'Download',
-                'loading_text': 'Downloading...',
+                'loading_text': 'Processing...',
                 'success_text': 'Download completed!',
                 'error_text': 'An error occurred',
-                'description': 'Story Saver created by instatest.com, is a convenient application that enables you to download any Instagram story to your device with complete anonymity.',
+                'description': 'A powerful tool to download Instagram content with high quality and complete anonymity.',
+                'supported_urls_title': 'Supported URLs:',
+                'supported_urls_text': 'instagram.com/p/... (posts), instagram.com/reel/... (reels), instagram.com/stories/... (stories)',
                 'how_to_title': 'How to download Story from Instagram?',
                 'how_to_step1': 'Copy the URL',
                 'how_to_step1_desc': 'First, open the Instagram Story you wish to download. Then, click on the (...) icon if you are using an iPhone or (:) if you are using an Android. From the popup menu, select the "Copy Link" option to copy the Story\'s URL.',
                 'faq_title': 'Frequently asked questions(FAQ)',
-                'faq_desc': 'This FAQ provides information on frequent questions or concerns about the instatest.com downloader. if you can\'t find the answer to your question, feel free to ask through email on our contact page.'
+                'faq_desc': 'This FAQ provides information on frequent questions or concerns about the instatest.com downloader. if you can\'t find the answer to your question, feel free to ask through email on our contact page.',
             }
             
             # Türkçe çeviriler
             default_tr_translations = {
                 'site_name': 'InstaTest',
-                'title': 'Instagram Hikaye İndirici',
-                'subtitle': 'Instagram hikayelerini ve öne çıkanları kolayca indir!',
-                'input_placeholder': 'Instagram linkini buraya yapıştır',
+                'title': 'Instagram Medya İndirici',
+                'subtitle': 'Instagram hikayelerini, reels ve gönderilerini kolayca indirin',
+                'input_placeholder': 'Instagram linkini buraya yapıştırın',
                 'paste_button': 'Yapıştır',
                 'download_button': 'İndir',
-                'loading_text': 'İndiriliyor...',
+                'loading_text': 'İşleniyor...',
                 'success_text': 'İndirme tamamlandı!',
                 'error_text': 'Bir hata oluştu',
-                'description': 'instatest.com tarafından oluşturulan Story Saver, herhangi bir Instagram hikayesini cihazınıza tam gizlilikle indirmenizi sağlayan kullanışlı bir uygulamadır.',
+                'description': 'Instagram içeriklerini yüksek kalitede ve tam gizlilikle indirmenizi sağlayan güçlü bir araç.',
+                'supported_urls_title': 'Desteklenen URLler:',
+                'supported_urls_text': 'instagram.com/p/... (gönderiler), instagram.com/reel/... (reels), instagram.com/stories/... (hikayeler)',
                 'how_to_title': 'Instagram\'dan Hikaye nasıl indirilir?',
                 'how_to_step1': 'URL\'yi kopyalayın',
                 'how_to_step1_desc': 'Önce, indirmek istediğiniz Instagram Hikayesini açın. Ardından, iPhone kullanıyorsanız (...) simgesine veya Android kullanıyorsanız (:) simgesine tıklayın. Açılan menüden "Bağlantıyı Kopyala" seçeneğini seçerek Hikayenin URL\'sini kopyalayın.',
                 'faq_title': 'Sık sorulan sorular(SSS)',
-                'faq_desc': 'Bu SSS, instatest.com indirici hakkında sık sorulan sorular veya endişeler hakkında bilgi sağlar. Sorunuzun cevabını bulamazsanız, iletişim sayfamızdaki e-posta yoluyla sormaktan çekinmeyin.'
+                'faq_desc': 'Bu SSS, instatest.com indirici hakkında sık sorulan sorular veya endişeler hakkında bilgi sağlar. Sorunuzun cevabını bulamazsanız, iletişim sayfamızdaki e-posta yoluyla sormaktan çekinmeyin.',
             }
             
             # Çevirileri ekle
@@ -697,7 +1061,10 @@ async def retry_with_backoff(func, max_retries=5, initial_delay=10):
     """Exponential backoff ile retry mekanizması"""
     for attempt in range(max_retries):
         try:
-            return await func()
+            if asyncio.iscoroutinefunction(func):
+                return await func()
+            else:
+                return func()
         except instaloader.exceptions.InstaloaderException as e:
             if attempt == max_retries - 1:
                 raise
@@ -723,103 +1090,86 @@ async def download_media_from_instagram(url: str, client_id: str) -> dict:
     """Instagram'dan medya URL'lerini al"""
     extra = {
         'client_ip': client_id,
-        'endpoint': '/api/download',
-        'response_time': 0,
-        'status_code': 200
+        'url': url
     }
+    logger.info(f"Download request received", extra=extra)
     
-    start_time = datetime.now()
-    
+    current_cookie = None
     try:
-        # Rate limit kontrolü
-        if not rate_limiter.is_allowed(client_id):
-            logger.warning(f"Rate limit exceeded for client: {client_id}", extra=extra)
-            return {"success": False, "error": "Rate limit aşıldı. Lütfen biraz bekleyin."}
+        # Get a loader from the pool
+        loader = await loader_pool.get_loader()
+        current_cookie = loader.context.username
         
+        # Get the shortcode from the URL
         shortcode = get_shortcode_from_url(url)
         if not shortcode:
-            logger.warning(f"Invalid Instagram URL: {url}", extra=extra)
-            return {"success": False, "error": "Geçerli bir Instagram URL'si değil"}
-        
-        # Retry mekanizması ile download işlemini gerçekleştir
+            raise ValueError("Invalid Instagram URL")
+
         async def download_attempt():
-            loader = await loader_pool.get_loader()
-            
+            post = None
             try:
-                # Story URL'si kontrolü
-                if shortcode.startswith('story_'):
-                    parts = shortcode.split('_', 2)  # En fazla 2 kere böl
-                    if len(parts) != 3:
-                        raise instaloader.exceptions.InstaloaderException("Invalid story URL format")
-                    
-                    username = parts[1]
-                    story_id = parts[2]
-                    logger.debug(f"Attempting to fetch story - username: {username}, id: {story_id}")
-                    
-                    try:
-                        # Profil aramayı yeni API ile yap
-                        profile_url = f"https://i.instagram.com/api/v1/users/web_profile_info/?username={username}"
-                        headers = {
-                            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko)',
-                            'X-IG-App-ID': '936619743392459',  # Instagram web app ID
-                            'X-Requested-With': 'XMLHttpRequest'
-                        }
-                        
-                        async with aiohttp.ClientSession() as session:
-                            async with session.get(profile_url, headers=headers, cookies=loader.context._session.cookies) as response:
-                                if response.status == 200:
-                                    data = await response.json()
-                                    if 'data' in data and 'user' in data['data']:
-                                        user_id = data['data']['user']['id']
-                                        logger.debug(f"Found user ID: {user_id} for username: {username}")
-                                        
-                                        # Story'leri al
-                                        stories = loader.get_stories([user_id])
-                                        for story in stories:
-                                            for item in story.get_items():
-                                                logger.debug(f"Checking story item: {item.mediaid}")
-                                                if str(item.mediaid) == story_id:
-                                                    if item.is_video:
-                                                        return item.video_url, 'mp4'
-                                                    return item.url, 'jpg'
-                                    
-                        raise instaloader.exceptions.InstaloaderException(f"Could not fetch stories for {username}")
-                            
-                    except Exception as e:
-                        logger.error(f"Story fetch error: {str(e)}")
-                        raise instaloader.exceptions.InstaloaderException(f"Failed to fetch stories: {str(e)}")
+                # Post.from_shortcode'u sync olarak çağır
+                def get_post():
+                    return instaloader.Post.from_shortcode(loader.context, shortcode)
                 
-                # Normal post işlemi
-                post = instaloader.Post.from_shortcode(loader.context, shortcode)
-                
-                # Post erişilebilir mi kontrol et
-                if not post or not hasattr(post, 'url'):
-                    raise instaloader.exceptions.InstaloaderException("Post metadata is incomplete")
-                
-                if post.is_video:
-                    if not post.video_url:
-                        raise instaloader.exceptions.InstaloaderException("Video URL not found")
-                    return post.video_url, 'mp4'
-                else:
-                    if not post.url:
-                        raise instaloader.exceptions.InstaloaderException("Image URL not found")
-                    return post.url, 'jpg'
-                    
+                post = await retry_with_backoff(get_post)
             except Exception as e:
-                logger.error(f"Download attempt failed: {str(e)}")
+                logger.error(f"Error getting post: {str(e)}", extra=extra)
                 raise
-                
-        media_url, media_type = await retry_with_backoff(download_attempt)
-        
-        return {
-            "success": True,
-            "media_url": media_url,
-            "media_type": media_type
-        }
-            
+
+            if not post:
+                raise ValueError("Could not fetch post data")
+
+            # Get media URLs
+            media_urls = []
+            if post.is_video and post.video_url:
+                media_urls.append({
+                    'url': post.video_url,
+                    'type': 'video',
+                    'thumbnail': post.url
+                })
+            else:
+                media_urls.append({
+                    'url': post.url,
+                    'type': 'image'
+                })
+
+            if not media_urls:
+                raise ValueError("No media found in post")
+
+            # Mark cookie as successful
+            if current_cookie:
+                cookie_manager.mark_cookie_success({"id": current_cookie})
+
+            return {
+                'success': True,
+                'media_urls': media_urls,
+                'type': 'video' if post.is_video else 'image',
+                'caption': post.caption if post.caption else '',
+                'owner': post.owner_username,
+                'timestamp': post.date_local.isoformat()
+            }
+
+        result = await download_attempt()
+        if not result.get('success'):
+            raise HTTPException(status_code=400, detail=result.get('error', 'Failed to process Instagram URL'))
+        return result
+
+    except instaloader.exceptions.ConnectionException as e:
+        logger.error(f"Connection error: {str(e)}", extra=extra)
+        if "429" in str(e) and current_cookie:  # Rate limit response
+            cookie_manager.mark_cookie_rate_limited({"id": current_cookie})
+        raise HTTPException(status_code=429, detail="Rate limited. Please try again later.")
+    
+    except instaloader.exceptions.LoginRequiredException as e:
+        logger.error(f"Login required: {str(e)}", extra=extra)
+        if current_cookie:
+            cookie_manager.mark_cookie_challenge({"id": current_cookie})
+        raise HTTPException(status_code=401, detail="Login required to access this content")
+    
     except Exception as e:
-        logger.error(f"Error processing URL {url}: {str(e)}")
-        return {"success": False, "error": str(e)}
+        logger.error(f"Error downloading media: {str(e)}", extra=extra)
+        raise HTTPException(status_code=500, detail=f"Failed to download media: {str(e)}")
 
 @app.post("/api/download")
 async def handle_download(request: Request, download_req: DownloadRequest):
@@ -830,12 +1180,21 @@ async def handle_download(request: Request, download_req: DownloadRequest):
         
         task_manager.add_task(task_id)
         
-        result = await download_media_from_instagram(download_req.url, client_id)
-        
-        task_manager.update_task(task_id, "completed", result)
-        
-        return {"task_id": task_id, "status": "processing"}
+        try:
+            result = await download_media_from_instagram(download_req.url, client_id)
+            task_manager.update_task(task_id, "completed", result)
+            
+            return {
+                "task_id": task_id,
+                "status": "SUCCESS",
+                "result": result
+            }
+        except Exception as e:
+            task_manager.update_task(task_id, "failed", {"error": str(e)})
+            raise HTTPException(status_code=500, detail=str(e))
+            
     except Exception as e:
+        logger.error(f"Download error: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/status/{task_id}")
@@ -987,7 +1346,7 @@ async def download_media(request: Request):
             if not result.get('success'):
                 raise HTTPException(status_code=400, detail=result.get('error', 'Failed to process Instagram URL'))
             
-            media_url = result['media_url']
+            media_url = result['media_urls'][0]['url']
 
         # Medya dosyasını indir
         async with aiohttp.ClientSession() as session:
@@ -1016,9 +1375,12 @@ async def download_media(request: Request):
                     }
                 )
 
+    except HTTPException as he:
+        logger.error(f"HTTP error in download_media: {str(he)}")
+        raise he
     except Exception as e:
         logger.error(f"Media download error: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=f"Failed to download media: {str(e)}")
 
 @app.get("/api/stories/{username}")
 async def get_user_stories(username: str):
@@ -1357,6 +1719,37 @@ async def get_preview(request: Request):
     except Exception as e:
         logger.error(f"Preview error: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
+
+# Admin şifre güncelleme endpoint'i
+@app.post("/api/admin/password")
+async def update_password_endpoint(
+    request: Request,
+    admin: Admin = Depends(get_current_admin_from_token)
+):
+    """Admin şifresini güncelle"""
+    try:
+        data = await request.json()
+        current_password = data.get('current_password')
+        new_password = data.get('new_password')
+
+        if not current_password or not new_password:
+            raise HTTPException(status_code=400, detail="Both current and new passwords are required")
+
+        # Mevcut şifreyi doğrula
+        if not verify_admin_password(admin, current_password):
+            raise HTTPException(status_code=400, detail="Current password is incorrect")
+
+        # Yeni şifreyi güncelle
+        if update_admin_password(admin.id, new_password):
+            return {"message": "Password updated successfully"}
+        else:
+            raise HTTPException(status_code=500, detail="Failed to update password")
+            
+    except HTTPException as he:
+        raise he
+    except Exception as e:
+        logger.error(f"Update password error: {str(e)}")
+        raise HTTPException(status_code=500, detail="An error occurred while updating password")
 
 if __name__ == "__main__":
     import uvicorn

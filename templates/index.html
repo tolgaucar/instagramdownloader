@@ -85,40 +85,6 @@
 							placeholder="{{ translations.input_placeholder }}"
 						/>
 					</div>
-					
-					<div class="mb-6">
-						<label class="block text-gray-700 text-sm font-bold mb-2">Medya Tipi</label>
-						<div class="flex space-x-4">
-							<label class="inline-flex items-center">
-								<input
-									type="radio"
-									name="type"
-									value="post"
-									checked
-									class="form-radio text-indigo-600"
-								/>
-								<span class="ml-2">Post</span>
-							</label>
-							<label class="inline-flex items-center">
-								<input
-									type="radio"
-									name="type"
-									value="reel"
-									class="form-radio text-indigo-600"
-								/>
-								<span class="ml-2">Reel</span>
-							</label>
-							<label class="inline-flex items-center">
-								<input
-									type="radio"
-									name="type"
-									value="story"
-									class="form-radio text-indigo-600"
-								/>
-								<span class="ml-2">Story</span>
-							</label>
-						</div>
-					</div>
 
 					<!-- Story seçim bölümü -->
 					<div id="story-selector" class="mb-6 hidden">
@@ -171,6 +137,10 @@
 					>
 						{{ translations.download_button }}
 					</button>
+
+					<p class="mt-2 text-sm text-gray-600">
+						<span class="font-medium">{{ translations.supported_urls_title }}</span> {{ translations.supported_urls_text }}
+					</p>
 
 					<div id="status" class="mt-4 hidden">
 						<div class="animate-pulse flex space-x-4">
@@ -325,7 +295,7 @@
 						<ul class="space-y-2">
 							<li><a href="#" class="hover:text-white transition-colors duration-200">{{ translations.footer_api }}</a></li>
 							<li><a href="#" class="hover:text-white transition-colors duration-200">{{ translations.footer_docs }}</a></li>
-							<li><a href="/system-status" class="hover:text-white transition-colors duration-200">{{ translations.footer_status }}</a></li>
+							<li><a href="#" class="hover:text-white transition-colors duration-200">{{ translations.footer_contact }}</a></li>
 						</ul>
 					</div>
 					<!-- Hızlı Bağlantılar -->
@@ -358,29 +328,6 @@
 			const languageDropdown = document.getElementById('language-dropdown');
 			const languageMenu = document.getElementById('language-menu');
 			
-			// Story seçildiğinde göster/gizle
-			document.querySelectorAll('input[name="type"]').forEach((radio) => {
-				radio.addEventListener('change', (e) => {
-					const urlInput = document.getElementById('instagram-url');
-					
-					// Placeholder'ı seçilen tipe göre güncelle
-					switch(e.target.value) {
-						case 'story':
-							urlInput.placeholder = 'https://www.instagram.com/stories/username/';
-							storySelector.classList.remove('hidden');
-							break;
-						case 'post':
-							urlInput.placeholder = 'https://www.instagram.com/p/...';
-							storySelector.classList.add('hidden');
-							break;
-						case 'reel':
-							urlInput.placeholder = 'https://www.instagram.com/reel/...';
-							storySelector.classList.add('hidden');
-							break;
-					}
-				});
-			});
-			
 			function extractUsername(url) {
 				if (!url) return null;
 				
@@ -404,98 +351,92 @@
 				return null;
 			}
 			
-			async function fetchStories(username) {
+			// URL input değişikliğini dinle
+			urlInput.addEventListener('input', (e) => {
+				const url = e.target.value.trim();
+				downloadBtn.disabled = !url;
+				
+				// URL boşsa önizlemeyi gizle
+				if (!url) {
+					document.getElementById('preview-section').classList.add('hidden');
+				}
+			});
+
+			// Download butonu click event'i
+			downloadBtn.addEventListener("click", async () => {
+				const url = urlInput.value.trim();
+
+				if (!url) {
+					showError("Lütfen bir Instagram URL'si girin");
+					return;
+				}
+
 				try {
-					statusDiv.classList.remove('hidden');
-					storyList.innerHTML = '';
-					errorDiv.classList.add('hidden');
+					showLoading('Yükleniyor...');
 					
-					const response = await axios.get(`/api/stories/${username}`);
-					console.log('Story response:', response.data); // Debug için
-					
-					if (response.data.success) {
-						const stories = response.data.stories;
-						if (stories.length === 0) {
-							showError('Kullanıcının aktif story\'si bulunmuyor');
+					// Story URL kontrolü
+					if (url.includes('/stories/')) {
+						const username = extractUsername(url);
+						if (!username) {
+							showError("Geçerli bir Instagram URL'si değil");
+							hideLoading();
 							return;
 						}
+
+						// Story'leri getir
+						const response = await axios.get(`/api/stories/${username}`);
 						
-						stories.forEach(story => {
-							console.log('Story item:', story); // Her story için debug
-							const storyElement = document.createElement('div');
-							storyElement.className = 'border rounded-lg p-4 cursor-pointer hover:bg-gray-50 transition duration-200 shadow-sm';
+						if (response.data.success) {
+							const stories = response.data.stories;
+							if (stories.length > 0) {
+								displayStories(stories);
+							} else {
+								showError('Kullanıcının aktif story\'si bulunmuyor');
+							}
+						} else {
+							showError(response.data.message || 'Story\'ler alınamadı');
+						}
+					} else {
+						// Önce önizleme al
+						try {
+							const previewResponse = await axios.get(`/api/preview?url=${encodeURIComponent(url)}`);
+							const preview = previewResponse.data;
 							
-							// Önizleme URL'sini proxy üzerinden al
-							const previewUrl = story.thumbnail || story.url;
-							const proxiedUrl = `/api/proxy-image?url=${encodeURIComponent(previewUrl)}`;
-							console.log('Proxied URL:', proxiedUrl); // Debug için
+							// Önizleme bölümünü göster ve doldur
+							document.getElementById('preview-section').classList.remove('hidden');
 							
-							// Thumbnail ve içerik için container
-							const contentHtml = `
-								<div class="flex flex-col">
-									<div class="relative mb-3 rounded-lg overflow-hidden bg-gray-100" style="aspect-ratio: 9/16;">
-										<img 
-											src="${proxiedUrl}"
-											alt="Story önizleme"
-											class="absolute inset-0 w-full h-full object-cover"
-											onerror="this.onerror=null; this.src='data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNDAwIiBoZWlnaHQ9IjcxMSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSIjZjNmNGY2Ii8+PHRleHQgeD0iNTAlIiB5PSI1MCUiIGZvbnQtZmFtaWx5PSJBcmlhbCIgZm9udC1zaXplPSIyMCIgZmlsbD0iIzljYTNhZiIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZHk9Ii4zZW0iPsOWbml6bGVtZSBZw7xrbGVuZW1lZGk8L3RleHQ+PC9zdmc+'"
-										/>
-										<div class="absolute inset-0 bg-black bg-opacity-20"></div>
-										<div class="absolute top-2 right-2">
-											${story.type === 'video' 
-												? '<span class="bg-purple-600 text-white text-xs px-2 py-1 rounded-full"><svg class="w-4 h-4 inline-block" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg></span>'
-												: '<span class="bg-purple-600 text-white text-xs px-2 py-1 rounded-full"><svg class="w-4 h-4 inline-block" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg></span>'
-											}
-										</div>
-									</div>
-									<div class="flex items-center justify-between">
-										<div class="flex-1">
-											<p class="text-sm text-gray-500">
-												${new Date(story.timestamp).toLocaleString('tr-TR', {
-													hour: '2-digit',
-													minute: '2-digit',
-													day: '2-digit',
-													month: '2-digit'
-												})}
-											</p>
-										</div>
-										<button 
-											onclick="downloadStory('${story.url}')"
-											class="ml-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition duration-200 flex items-center space-x-1"
-										>
-											<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-												<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path>
-											</svg>
-											<span>İndir</span>
-										</button>
-									</div>
-								</div>
-							`;
+							// Resmi yükle
+							const previewImage = document.getElementById('preview-image');
+							const proxyUrl = `/api/proxy-image?url=${encodeURIComponent(preview.thumbnail)}`;
+							previewImage.src = proxyUrl;
 							
-							storyElement.innerHTML = contentHtml;
-							storyList.appendChild(storyElement);
+							// Diğer bilgileri doldur
+							document.getElementById('preview-type-badge').innerHTML = preview.type === 'video' ? 
+								'<svg class="w-4 h-4 inline-block" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>' :
+								'<svg class="w-4 h-4 inline-block" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>';
 							
-							// Resim yüklenme durumunu kontrol et
-							const img = storyElement.querySelector('img');
-							img.addEventListener('load', () => {
-								console.log('Image loaded successfully:', proxiedUrl);
-							});
-							img.addEventListener('error', () => {
-								console.error('Image failed to load:', proxiedUrl);
-							});
-						});
+							document.getElementById('preview-owner').textContent = preview.owner;
+							document.getElementById('preview-caption').textContent = preview.caption;
+							document.getElementById('preview-likes').querySelector('span').textContent = formatNumber(preview.likes);
+							document.getElementById('preview-comments').querySelector('span').textContent = formatNumber(preview.comments);
+							document.getElementById('preview-timestamp').textContent = formatDate(preview.timestamp);
+							
+							// Medyayı indir
+							await downloadMedia(url);
+							resultDiv.classList.remove('hidden');
+							
+						} catch (previewError) {
+							console.error('Preview error:', previewError);
+							showError(previewError.response?.data?.detail || "Önizleme alınamadı");
+						}
 					}
 				} catch (error) {
-					console.error('Story fetch error:', error);
-					showError(error.response?.data?.detail || 'Story\'ler alınamadı');
+					console.error('Error:', error);
+					showError(error.response?.data?.detail || "Bir hata oluştu");
 				} finally {
-					statusDiv.classList.add('hidden');
+					hideLoading();
 				}
-			}
-			
-			function downloadStory(url) {
-				downloadMedia(url);
-			}
+			});
 
 			function downloadMedia(url) {
 				window.location.href = `/api/download-media?url=${encodeURIComponent(url)}`;
@@ -506,23 +447,6 @@
 				e.preventDefault();
 				const url = downloadLink.href;
 				downloadMedia(url);
-			});
-
-			// URL input değişikliğini dinle - otomatik search'ü kaldır
-			urlInput.addEventListener('input', (e) => {
-				const url = e.target.value.trim();
-				const type = document.querySelector('input[name="type"]:checked').value;
-				downloadBtn.disabled = !url;
-				
-				// Story seçiliyse önizleme gösterme
-				if (type === 'story') {
-					document.getElementById('preview-section').classList.add('hidden');
-				}
-				
-				// URL boşsa önizlemeyi gizle
-				if (!url) {
-					document.getElementById('preview-section').classList.add('hidden');
-				}
 			});
 
 			// Sayıları formatlama fonksiyonu
@@ -632,82 +556,6 @@
 					storyList.appendChild(storyElement);
 				});
 			}
-
-			// Download butonu click event'i
-			downloadBtn.addEventListener("click", async () => {
-				const url = urlInput.value.trim();
-				const type = document.querySelector('input[name="type"]:checked').value;
-
-				if (!url) {
-					showError("Lütfen bir Instagram URL'si girin");
-					return;
-				}
-
-				try {
-					showLoading('Yükleniyor...');
-					
-					if (type === 'story') {
-						const username = extractUsername(url);
-						if (!username) {
-							showError("Geçerli bir Instagram URL'si değil");
-							hideLoading();
-							return;
-						}
-
-						// Story'leri getir
-						const response = await axios.get(`/api/stories/${username}`);
-						
-						if (response.data.success) {
-							const stories = response.data.stories;
-							if (stories.length > 0) {
-								displayStories(stories);
-							} else {
-								showError('Kullanıcının aktif story\'si bulunmuyor');
-							}
-						} else {
-							showError(response.data.message || 'Story\'ler alınamadı');
-						}
-					} else {
-						// Önce önizleme al
-						try {
-							const previewResponse = await axios.get(`/api/preview?url=${encodeURIComponent(url)}`);
-							const preview = previewResponse.data;
-							
-							// Önizleme bölümünü göster ve doldur
-							document.getElementById('preview-section').classList.remove('hidden');
-							
-							// Resmi yükle
-							const previewImage = document.getElementById('preview-image');
-							const proxyUrl = `/api/proxy-image?url=${encodeURIComponent(preview.thumbnail)}`;
-							previewImage.src = proxyUrl;
-							
-							// Diğer bilgileri doldur
-							document.getElementById('preview-type-badge').innerHTML = preview.type === 'video' ? 
-								'<svg class="w-4 h-4 inline-block" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>' :
-								'<svg class="w-4 h-4 inline-block" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>';
-							
-							document.getElementById('preview-owner').textContent = preview.owner;
-							document.getElementById('preview-caption').textContent = preview.caption;
-							document.getElementById('preview-likes').querySelector('span').textContent = formatNumber(preview.likes);
-							document.getElementById('preview-comments').querySelector('span').textContent = formatNumber(preview.comments);
-							document.getElementById('preview-timestamp').textContent = formatDate(preview.timestamp);
-							
-							// Medyayı indir
-							await downloadMedia(url);
-							resultDiv.classList.remove('hidden');
-							
-						} catch (previewError) {
-							console.error('Preview error:', previewError);
-							showError(previewError.response?.data?.detail || "Önizleme alınamadı");
-						}
-					}
-				} catch (error) {
-					console.error('Error:', error);
-					showError(error.response?.data?.detail || "Bir hata oluştu");
-				} finally {
-					hideLoading();
-				}
-			});
 
 			function showError(message) {
 				errorMessage.textContent = message;
