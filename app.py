@@ -163,10 +163,10 @@ class CookieManager:
             host=os.getenv('REDIS_HOST', 'localhost'),
             port=int(os.getenv('REDIS_PORT', 6379)),
             db=int(os.getenv('REDIS_DB', 0)),
-            password=os.getenv('REDIS_PASSWORD', None)
+            password=os.getenv('REDIS_PASSWORD', None),
+            decode_responses=True
         )
         
-        # Create cookies directory if it doesn't exist
         if not os.path.exists(self.cookies_dir):
             os.makedirs(self.cookies_dir)
 
@@ -195,10 +195,10 @@ class CookieManager:
 
     def _get_cookie_health_key(self, cookie_id: str) -> str:
         return f"cookie:{cookie_id}:health"
-    
+
     def _get_cookie_cooldown_key(self, cookie_id: str) -> str:
         return f"cookie:{cookie_id}:cooldown"
-    
+
     def _get_request_count_key(self, cookie_id: str) -> str:
         return f"cookie:{cookie_id}:requests"
 
@@ -263,7 +263,7 @@ class CookieManager:
                 # Skip if cookie is in cooldown
                 if self.is_cookie_in_cooldown(cookie_id):
                     continue
-                
+
                 # Get cookie health
                 health = self.get_cookie_health(cookie_id)
                 successes = int(health.get('successes', 0))
@@ -271,10 +271,10 @@ class CookieManager:
                 
                 # Calculate success rate
                 total_requests = successes + challenges
-                success_rate = (successes / total_requests * 100) if total_requests > 0 else 0
+                success_rate = (successes / total_requests * 100) if total_requests > 0 else 100
                 
-                # Skip if cookie has poor health
-                if total_requests > 10 and success_rate < 50:
+                # Skip if cookie has poor health (less than 30% success rate)
+                if total_requests > 10 and success_rate < 30:
                     continue
                 
                 try:
@@ -283,16 +283,17 @@ class CookieManager:
                         available_cookies.append((cookie_data, success_rate))
                 except:
                     continue
-            
+
             if not available_cookies:
                 return None
-            
-            # Sort by success rate and pick the best one
+
+            # Sort by success rate and pick randomly from top 3
             available_cookies.sort(key=lambda x: x[1], reverse=True)
-            return available_cookies[0][0]
+            top_cookies = available_cookies[:3]
+            return random.choice(top_cookies)[0]
             
         except Exception as e:
-            print(f"Error getting next cookie: {str(e)}")
+            logger.error(f"Error getting next cookie: {str(e)}")
             return None
 
     def mark_cookie_success(self, cookie_data: dict):
@@ -325,30 +326,28 @@ class CookieManager:
             print(f"Error marking cookie challenge: {str(e)}")
 
     def mark_cookie_rate_limited(self, cookie_data: dict):
-        """Mark a cookie as rate limited"""
+        """Mark a cookie as rate limited with progressive cooldown"""
         try:
             cookie_id = cookie_data.get('ds_user_id')
             if not cookie_id:
                 return
             
-            # Put cookie in cooldown for 30 minutes (increased from 15)
-            cooldown_key = self._get_cookie_cooldown_key(cookie_id)
-            self.redis_client.setex(cooldown_key, 1800, '1')
-            
-            # Increment rate limit counter
+            # Get current rate limit count
             rate_limit_key = f"cookie:{cookie_id}:rate_limits"
-            self.redis_client.incr(rate_limit_key)
+            rate_limits = self.redis_client.incr(rate_limit_key)
             self.redis_client.expire(rate_limit_key, 86400)  # Expire after 24 hours
             
-            # If rate limited too many times, mark for longer cooldown
-            rate_limits = int(self.redis_client.get(rate_limit_key) or 0)
-            if rate_limits >= 5:
-                # Put in extended cooldown for 2 hours
-                self.redis_client.setex(cooldown_key, 7200, '1')
-                # Reset counter
-                self.redis_client.delete(rate_limit_key)
+            # Calculate cooldown duration based on rate limit count
+            cooldown_duration = min(1800 * (2 ** (rate_limits - 1)), 7200)  # Max 2 hours
+            
+            # Put cookie in cooldown
+            cooldown_key = self._get_cookie_cooldown_key(cookie_id)
+            self.redis_client.setex(cooldown_key, cooldown_duration, '1')
+            
+            logger.warning(f"Cookie {cookie_id} rate limited. Cooldown: {cooldown_duration}s")
+            
         except Exception as e:
-            print(f"Error marking cookie rate limited: {str(e)}")
+            logger.error(f"Error marking cookie rate limited: {str(e)}")
 
 # Global instances
 load_dotenv()
@@ -375,9 +374,10 @@ class RedisRateLimiter:
             port=int(os.getenv('REDIS_PORT', 6379)),
             db=int(os.getenv('REDIS_DB', 0)),
             password=os.getenv('REDIS_PASSWORD', None)
+        )
         self.max_requests = max_requests
         self.time_window = time_window
-
+        
     async def is_rate_limited(self, key: str) -> bool:
         try:
             current = self.redis_client.get(key)
@@ -422,17 +422,17 @@ class TaskManager:
             "result": None,
             "created_at": datetime.now().timestamp()
         }
-
+        
     def update_task(self, task_id: str, status: str, result: dict = None):
         """Task durumunu güncelle"""
         if task_id in self.tasks:
             self.tasks[task_id]["status"] = status
             self.tasks[task_id]["result"] = result
-
+            
     def get_task(self, task_id: str) -> dict:
         """Task bilgilerini getir"""
         return self.tasks.get(task_id)
-
+        
     def cleanup_old_tasks(self, max_age: int = 3600):
         """Eski taskları temizle"""
         current_time = datetime.now().timestamp()
@@ -1171,7 +1171,7 @@ async def download_media_from_instagram(url: str, client_id: str) -> dict:
         shortcode = get_shortcode_from_url(url)
         if not shortcode:
             raise ValueError("Invalid Instagram URL")
-
+        
         async def download_attempt():
             post = None
             try:
@@ -1217,10 +1217,7 @@ async def download_media_from_instagram(url: str, client_id: str) -> dict:
                 'timestamp': post.date_local.isoformat()
             }
 
-        result = await download_attempt()
-        if not result.get('success'):
-            raise HTTPException(status_code=400, detail=result.get('error', 'Failed to process Instagram URL'))
-        return result
+        return await download_attempt()
 
     except instaloader.exceptions.ConnectionException as e:
         logger.error(f"Connection error: {str(e)}", extra=extra)
@@ -1233,7 +1230,7 @@ async def download_media_from_instagram(url: str, client_id: str) -> dict:
         if current_cookie:
             cookie_manager.mark_cookie_challenge({"id": current_cookie})
         raise HTTPException(status_code=401, detail="Login required to access this content")
-    
+            
     except Exception as e:
         logger.error(f"Error downloading media: {str(e)}", extra=extra)
         raise HTTPException(status_code=500, detail=f"Failed to download media: {str(e)}")
@@ -1839,52 +1836,6 @@ async def update_password_endpoint(
     except Exception as e:
         logger.error(f"Update password error: {str(e)}")
         raise HTTPException(status_code=500, detail="An error occurred while updating password")
-
-def init_redis():
-    max_retries = 3
-    retry_delay = 2  # seconds
-    
-    for attempt in range(max_retries):
-        try:
-            redis_client = redis.Redis(
-                host=os.getenv('REDIS_HOST', 'localhost'),
-                port=int(os.getenv('REDIS_PORT', 6379)),
-                db=int(os.getenv('REDIS_DB', 0)),
-                password=os.getenv('REDIS_PASSWORD', None),
-                socket_timeout=5,
-                socket_connect_timeout=5,
-                retry_on_timeout=True,
-                decode_responses=True
-            )
-            # Test connection
-            redis_client.ping()
-            return redis_client
-        except (redis.ConnectionError, redis.TimeoutError) as e:
-            if attempt == max_retries - 1:  # Last attempt
-                print(f"Failed to connect to Redis after {max_retries} attempts: {str(e)}")
-                raise
-            print(f"Redis connection attempt {attempt + 1} failed, retrying in {retry_delay} seconds...")
-            time.sleep(retry_delay)
-            retry_delay *= 2  # Exponential backoff
-
-@app.on_event("startup")
-async def startup_event():
-    global rate_limiter, task_manager, cookie_manager
-    
-    try:
-        redis_client = init_redis()
-        rate_limiter = RedisRateLimiter(redis_client)
-        task_manager = TaskManager(redis_client)
-        cookie_manager = CookieManager()
-        
-        # Load initial cookies into pool
-        cookies = cookie_manager.load_cookies()
-        instaloader_pool = InstaloaderPool()
-        for cookie_id, cookie_data in cookies.items():
-            instaloader_pool.load_cookies_to_loader(cookie_id, cookie_data)
-    except Exception as e:
-        print(f"Startup error: {str(e)}")
-        raise
 
 if __name__ == "__main__":
     import uvicorn
