@@ -170,6 +170,11 @@ class CookieManager:
         if not os.path.exists(self.cookies_dir):
             os.makedirs(self.cookies_dir)
 
+    @property
+    def cookies(self) -> list:
+        """Tüm cookie'leri ve durumlarını getir"""
+        return self.get_cookies()
+
     def get_cookies(self) -> list:
         """Tüm cookie'leri ve durumlarını getir"""
         cookies = []
