@@ -562,7 +562,7 @@ class AdminLoginRateLimiter:
     def get_remaining_attempts(self, username: str, ip: str) -> int:
         attempt_key = self._get_attempt_key(username, ip)
         attempts = int(self.redis.get(attempt_key) or 0)
-        return max(0, self.max_attempts - attempts)
+        return self.max_attempts - attempts
 
 # Rate limiter instance'ı oluştur
 admin_login_limiter = AdminLoginRateLimiter(redis_client)
@@ -1237,15 +1237,15 @@ async def download_media_from_instagram(url: str, client_id: str) -> dict:
             # Mark cookie as successful
             if current_cookie:
                 cookie_manager.mark_cookie_success({"id": current_cookie})
-        
-        return {
-            'success': True,
-            'media_urls': media_urls,
-            'type': 'video' if post.is_video else 'image',
-            'caption': post.caption if post.caption else '',
-            'owner': post.owner_username,
-            'timestamp': post.date_local.isoformat()
-        }
+            
+            return {
+                'success': True,
+                'media_urls': media_urls,
+                'type': 'video' if post.is_video else 'image',
+                'caption': post.caption if post.caption else '',
+                'owner': post.owner_username,
+                'timestamp': post.date_local.isoformat()
+            }
 
         return await download_attempt()
 
