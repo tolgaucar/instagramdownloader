@@ -170,6 +170,37 @@ class CookieManager:
         if not os.path.exists(self.cookies_dir):
             os.makedirs(self.cookies_dir)
 
+    def load_cookies(self):
+        """Tüm cookie'leri yeniden yükle"""
+        try:
+            cookie_files = [f for f in os.listdir(self.cookies_dir) if f.endswith('.json')]
+            
+            for cookie_file in cookie_files:
+                cookie_id = cookie_file.replace('.json', '')
+                cookie_path = os.path.join(self.cookies_dir, cookie_file)
+                
+                try:
+                    with open(cookie_path, 'r') as f:
+                        cookie_data = json.load(f)
+                        
+                    # Cookie sağlık durumunu kontrol et, yoksa oluştur
+                    health_key = self._get_cookie_health_key(cookie_id)
+                    if not self.redis_client.exists(health_key):
+                        self.redis_client.hset(health_key, mapping={
+                            'successes': '0',
+                            'challenges': '0',
+                            'last_success': '',
+                            'last_challenge': ''
+                        })
+                except Exception as e:
+                    logger.error(f"Error loading cookie {cookie_id}: {str(e)}")
+                    continue
+                    
+            logger.info("Cookies reloaded successfully")
+        except Exception as e:
+            logger.error(f"Error loading cookies: {str(e)}")
+            raise
+
     @property
     def cookies(self) -> list:
         """Tüm cookie'leri ve durumlarını getir"""
