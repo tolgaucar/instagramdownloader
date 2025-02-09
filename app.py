@@ -170,29 +170,6 @@ class CookieManager:
         if not os.path.exists(self.cookies_dir):
             os.makedirs(self.cookies_dir)
 
-    def load_cookies(self) -> dict:
-        """Load all cookies from the cookies directory"""
-        cookies = {}
-        try:
-            cookie_files = [f for f in os.listdir(self.cookies_dir) if f.endswith('.json')]
-            
-            for cookie_file in cookie_files:
-                cookie_id = cookie_file.replace('.json', '')
-                cookie_path = os.path.join(self.cookies_dir, cookie_file)
-                
-                try:
-                    with open(cookie_path, 'r') as f:
-                        cookie_data = json.load(f)
-                        cookies[cookie_id] = cookie_data
-                except Exception as e:
-                    print(f"Error loading cookie {cookie_id}: {str(e)}")
-                    continue
-            
-            return cookies
-        except Exception as e:
-            print(f"Error loading cookies: {str(e)}")
-            return {}
-
     def _get_cookie_health_key(self, cookie_id: str) -> str:
         return f"cookie:{cookie_id}:health"
 
@@ -205,51 +182,21 @@ class CookieManager:
     def get_cookie_health(self, cookie_id: str) -> dict:
         health_key = self._get_cookie_health_key(cookie_id)
         health_data = self.redis_client.hgetall(health_key)
-        return {k.decode('utf-8'): v.decode('utf-8') for k, v in health_data.items()} if health_data else {
+        return {k: v for k, v in health_data.items()} if health_data else {
             'successes': '0',
             'challenges': '0',
-            'last_success': ''
+            'last_success': '',
+            'last_challenge': ''
         }
 
     def is_cookie_in_cooldown(self, cookie_id: str) -> bool:
-        return bool(self.redis_client.exists(self._get_cookie_cooldown_key(cookie_id)))
-
-    def get_request_count(self, cookie_id: str) -> int:
-        count = self.redis_client.get(self._get_request_count_key(cookie_id))
-        return int(count) if count else 0
-
-    def get_cookies(self) -> list:
-        cookies = []
-        try:
-            # Get list of all cookie files
-            cookie_files = [f for f in os.listdir(self.cookies_dir) if f.endswith('.json')]
-            
-            for cookie_file in cookie_files:
-                cookie_id = cookie_file.replace('.json', '')
-                cookie_path = os.path.join(self.cookies_dir, cookie_file)
-                
-                if os.path.exists(cookie_path):
-                    # Get cookie health and status
-                    health = self.get_cookie_health(cookie_id)
-                    cooldown = self.is_cookie_in_cooldown(cookie_id)
-                    request_count = self.get_request_count(cookie_id)
-                    
-                    # Calculate success rate
-                    total_requests = int(health.get('successes', 0)) + int(health.get('challenges', 0))
-                    success_rate = (int(health.get('successes', 0)) / total_requests * 100) if total_requests > 0 else 0
-                    
-                    cookies.append({
-                        'id': cookie_id,
-                        'health': health,
-                        'cooldown': cooldown,
-                        'request_count': request_count,
-                        'success_rate': success_rate
-                    })
-            
-            return cookies
-        except Exception as e:
-            print(f"Error getting cookies: {str(e)}")
-            return []
+        cooldown_key = self._get_cookie_cooldown_key(cookie_id)
+        cooldown = self.redis_client.get(cooldown_key)
+        if cooldown:
+            cooldown_time = float(cooldown)
+            if cooldown_time > datetime.now().timestamp():
+                return True
+        return False
 
     def get_next_cookie(self) -> dict:
         """Get the next available cookie with improved selection"""
@@ -262,6 +209,7 @@ class CookieManager:
                 
                 # Skip if cookie is in cooldown
                 if self.is_cookie_in_cooldown(cookie_id):
+                    logger.debug(f"Cookie {cookie_id} is in cooldown")
                     continue
 
                 # Get cookie health
@@ -273,24 +221,39 @@ class CookieManager:
                 total_requests = successes + challenges
                 success_rate = (successes / total_requests * 100) if total_requests > 0 else 100
                 
-                # Skip if cookie has poor health (less than 30% success rate)
-                if total_requests > 10 and success_rate < 30:
+                # Skip if cookie has poor health (less than 20% success rate)
+                if total_requests > 5 and success_rate < 20:
+                    logger.debug(f"Cookie {cookie_id} has poor health (success rate: {success_rate}%)")
                     continue
                 
                 try:
                     with open(os.path.join(self.cookies_dir, cookie_file), 'r') as f:
                         cookie_data = json.load(f)
-                        available_cookies.append((cookie_data, success_rate))
-                except:
+                        # Add last success time bonus
+                        last_success = health.get('last_success')
+                        time_bonus = 0
+                        if last_success:
+                            last_success_time = datetime.fromisoformat(last_success)
+                            minutes_since_success = (datetime.now() - last_success_time).total_seconds() / 60
+                            time_bonus = min(minutes_since_success / 10, 50)  # Max 50 point bonus for time
+                        
+                        final_score = success_rate + time_bonus
+                        available_cookies.append((cookie_data, final_score))
+                except Exception as e:
+                    logger.error(f"Error loading cookie {cookie_id}: {str(e)}")
                     continue
 
             if not available_cookies:
+                logger.warning("No available cookies found")
                 return None
 
-            # Sort by success rate and pick randomly from top 3
+            # Sort by score and pick randomly from top 3
             available_cookies.sort(key=lambda x: x[1], reverse=True)
-            top_cookies = available_cookies[:3]
-            return random.choice(top_cookies)[0]
+            top_cookies = available_cookies[:min(3, len(available_cookies))]
+            selected_cookie = random.choice(top_cookies)[0]
+            
+            logger.info(f"Selected cookie with score {top_cookies[0][1]}")
+            return selected_cookie
             
         except Exception as e:
             logger.error(f"Error getting next cookie: {str(e)}")
@@ -306,24 +269,36 @@ class CookieManager:
             health_key = self._get_cookie_health_key(cookie_id)
             self.redis_client.hincrby(health_key, 'successes', 1)
             self.redis_client.hset(health_key, 'last_success', datetime.now().isoformat())
+            
+            # Remove cooldown if exists
+            cooldown_key = self._get_cookie_cooldown_key(cookie_id)
+            self.redis_client.delete(cooldown_key)
+            
+            logger.info(f"Cookie {cookie_id} marked as successful")
         except Exception as e:
-            print(f"Error marking cookie success: {str(e)}")
+            logger.error(f"Error marking cookie success: {str(e)}")
 
     def mark_cookie_challenge(self, cookie_data: dict):
-        """Mark a cookie as challenged"""
+        """Mark a cookie as challenged with progressive cooldown"""
         try:
             cookie_id = cookie_data.get('ds_user_id')
             if not cookie_id:
                 return
             
             health_key = self._get_cookie_health_key(cookie_id)
-            self.redis_client.hincrby(health_key, 'challenges', 1)
+            challenges = int(self.redis_client.hincrby(health_key, 'challenges', 1))
+            self.redis_client.hset(health_key, 'last_challenge', datetime.now().isoformat())
             
-            # Put cookie in cooldown for 30 minutes
+            # Calculate cooldown duration based on challenge count
+            cooldown_minutes = min(30 * (2 ** (challenges - 1)), 720)  # Max 12 hours
+            cooldown_time = datetime.now() + timedelta(minutes=cooldown_minutes)
+            
             cooldown_key = self._get_cookie_cooldown_key(cookie_id)
-            self.redis_client.setex(cooldown_key, 1800, '1')
+            self.redis_client.set(cooldown_key, cooldown_time.timestamp())
+            
+            logger.warning(f"Cookie {cookie_id} challenged. Cooldown: {cooldown_minutes} minutes")
         except Exception as e:
-            print(f"Error marking cookie challenge: {str(e)}")
+            logger.error(f"Error marking cookie challenge: {str(e)}")
 
     def mark_cookie_rate_limited(self, cookie_data: dict):
         """Mark a cookie as rate limited with progressive cooldown"""
@@ -338,14 +313,13 @@ class CookieManager:
             self.redis_client.expire(rate_limit_key, 86400)  # Expire after 24 hours
             
             # Calculate cooldown duration based on rate limit count
-            cooldown_duration = min(1800 * (2 ** (rate_limits - 1)), 7200)  # Max 2 hours
+            cooldown_minutes = min(15 * (2 ** (rate_limits - 1)), 360)  # Max 6 hours
+            cooldown_time = datetime.now() + timedelta(minutes=cooldown_minutes)
             
-            # Put cookie in cooldown
             cooldown_key = self._get_cookie_cooldown_key(cookie_id)
-            self.redis_client.setex(cooldown_key, cooldown_duration, '1')
+            self.redis_client.set(cooldown_key, cooldown_time.timestamp())
             
-            logger.warning(f"Cookie {cookie_id} rate limited. Cooldown: {cooldown_duration}s")
-            
+            logger.warning(f"Cookie {cookie_id} rate limited. Cooldown: {cooldown_minutes} minutes")
         except Exception as e:
             logger.error(f"Error marking cookie rate limited: {str(e)}")
 
@@ -1722,18 +1696,25 @@ async def get_preview(request: Request):
         if shortcode.startswith('story_'):
             raise HTTPException(status_code=400, detail='Stories are not supported for preview')
 
-        max_retries = 5  # Increased from 3 to 5
-        last_error = None
+        max_retries = 5
         base_delay = 2  # Base delay in seconds
+        last_error = None
+        used_cookies = set()
 
         for attempt in range(max_retries):
             try:
-                # Her denemede yeni bir cookie al
+                # Get a new cookie that hasn't been used in this request yet
                 new_cookies = cookie_manager.get_next_cookie()
                 if not new_cookies:
-                    # Wait before trying again if no cookies are available
                     await asyncio.sleep(base_delay * (2 ** attempt))
+                    logger.warning(f"No available cookies, waiting {base_delay * (2 ** attempt)}s before retry")
                     continue
+
+                cookie_id = new_cookies.get('ds_user_id')
+                if cookie_id in used_cookies:
+                    logger.debug(f"Cookie {cookie_id} already used in this request, skipping")
+                    continue
+                used_cookies.add(cookie_id)
 
                 loader = await loader_pool.get_loader()
                 loader_pool.load_cookies_to_loader(loader, new_cookies)
@@ -1745,25 +1726,32 @@ async def get_preview(request: Request):
 
                 post = instaloader.Post.from_shortcode(loader.context, shortcode)
                 
-                # Thumbnail ve video URL'lerini güvenli bir şekilde al
-                if post.is_video:
-                    try:
+                # Get thumbnail and video URLs safely
+                thumbnail_url = None
+                video_url = None
+                
+                try:
+                    if post.is_video:
                         thumbnail_url = post.video_thumbnail_url
                         video_url = post.video_url
-                    except:
-                        try:
-                            node = next(iter(post.get_sidecar_nodes()), post)
-                            thumbnail_url = node.url
-                            video_url = node.video_url if hasattr(node, 'video_url') else None
-                        except:
-                            thumbnail_url = post.url
-                            video_url = None
-                else:
-                    thumbnail_url = post.url
-                    video_url = None
+                    else:
+                        thumbnail_url = post.url
+                except Exception as e:
+                    logger.warning(f"Error getting primary URLs: {str(e)}, trying fallback")
+                    try:
+                        node = next(iter(post.get_sidecar_nodes()), post)
+                        thumbnail_url = node.url
+                        if hasattr(node, 'video_url'):
+                            video_url = node.video_url
+                    except Exception as e2:
+                        logger.warning(f"Error getting fallback URLs: {str(e2)}")
+                        thumbnail_url = post.url
+                
+                if not thumbnail_url:
+                    raise ValueError("Could not get media URL")
                 
                 preview_info = {
-                    "type": "video" if post.is_video else "photo",
+                    "type": "video" if video_url else "photo",
                     "thumbnail": thumbnail_url,
                     "video_url": video_url,
                     "caption": post.caption if post.caption else "",
@@ -1773,30 +1761,35 @@ async def get_preview(request: Request):
                     "timestamp": post.date.isoformat()
                 }
 
+                # Mark cookie as successful
                 cookie_manager.mark_cookie_success(new_cookies)
                 return preview_info
 
             except Exception as e:
                 error_msg = str(e).lower()
-                if "rate_limit" in error_msg or "please wait" in error_msg:
-                    cookie_manager.mark_cookie_rate_limited(new_cookies)
-                    # Add longer delay for rate limits
-                    await asyncio.sleep(base_delay * (2 ** attempt) + 5)
-                elif "login_required" in error_msg or "checkpoint_required" in error_msg:
-                    cookie_manager.mark_cookie_challenge(new_cookies)
-                elif "unauthorized" in error_msg:
-                    # Mark cookie as challenged and try next one
-                    cookie_manager.mark_cookie_challenge(new_cookies)
+                if new_cookies:
+                    if "rate_limit" in error_msg or "please wait" in error_msg:
+                        cookie_manager.mark_cookie_rate_limited(new_cookies)
+                        await asyncio.sleep(base_delay * (2 ** attempt) + 5)
+                    elif "login_required" in error_msg or "checkpoint_required" in error_msg:
+                        cookie_manager.mark_cookie_challenge(new_cookies)
+                    elif "unauthorized" in error_msg:
+                        cookie_manager.mark_cookie_challenge(new_cookies)
                 
                 if attempt < max_retries - 1:
+                    logger.warning(f"Attempt {attempt + 1} failed: {str(e)}")
                     continue
                 last_error = str(e)
 
+        # All retries failed
+        logger.error(f"All preview attempts failed. Last error: {last_error}")
         raise HTTPException(
-            status_code=429,  # Changed from 500 to 429 for rate limit
+            status_code=429,
             detail="Rate limit exceeded. Please wait a few minutes before trying again."
         )
 
+    except HTTPException as he:
+        raise he
     except Exception as e:
         logger.error(f"Preview error: {str(e)}")
         if "rate_limit" in str(e).lower() or "please wait" in str(e).lower():
