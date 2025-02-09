@@ -159,7 +159,12 @@ class InstaloaderPool:
 class CookieManager:
     def __init__(self):
         self.cookies_dir = "cookies"
-        self.redis_client = redis.Redis(host='localhost', port=6379, db=0)
+        self.redis_client = redis.Redis(
+            host=os.getenv('REDIS_HOST', 'localhost'),
+            port=int(os.getenv('REDIS_PORT', 6379)),
+            db=int(os.getenv('REDIS_DB', 0)),
+            password=os.getenv('REDIS_PASSWORD', None)
+        )
         
         # Create cookies directory if it doesn't exist
         if not os.path.exists(self.cookies_dir):
@@ -247,27 +252,45 @@ class CookieManager:
             return []
 
     def get_next_cookie(self) -> dict:
-        """Get the next available cookie"""
+        """Get the next available cookie with improved selection"""
         try:
             cookie_files = [f for f in os.listdir(self.cookies_dir) if f.endswith('.json')]
+            available_cookies = []
             
             for cookie_file in cookie_files:
                 cookie_id = cookie_file.replace('.json', '')
-                cookie_path = os.path.join(self.cookies_dir, cookie_file)
                 
                 # Skip if cookie is in cooldown
                 if self.is_cookie_in_cooldown(cookie_id):
                     continue
                 
-                # Load cookie data
+                # Get cookie health
+                health = self.get_cookie_health(cookie_id)
+                successes = int(health.get('successes', 0))
+                challenges = int(health.get('challenges', 0))
+                
+                # Calculate success rate
+                total_requests = successes + challenges
+                success_rate = (successes / total_requests * 100) if total_requests > 0 else 0
+                
+                # Skip if cookie has poor health
+                if total_requests > 10 and success_rate < 50:
+                    continue
+                
                 try:
-                    with open(cookie_path, 'r') as f:
+                    with open(os.path.join(self.cookies_dir, cookie_file), 'r') as f:
                         cookie_data = json.load(f)
-                        return cookie_data
+                        available_cookies.append((cookie_data, success_rate))
                 except:
                     continue
             
-            return None
+            if not available_cookies:
+                return None
+            
+            # Sort by success rate and pick the best one
+            available_cookies.sort(key=lambda x: x[1], reverse=True)
+            return available_cookies[0][0]
+            
         except Exception as e:
             print(f"Error getting next cookie: {str(e)}")
             return None
@@ -308,73 +331,117 @@ class CookieManager:
             if not cookie_id:
                 return
             
-            # Put cookie in cooldown for 15 minutes
+            # Put cookie in cooldown for 30 minutes (increased from 15)
             cooldown_key = self._get_cookie_cooldown_key(cookie_id)
-            self.redis_client.setex(cooldown_key, 900, '1')
+            self.redis_client.setex(cooldown_key, 1800, '1')
+            
+            # Increment rate limit counter
+            rate_limit_key = f"cookie:{cookie_id}:rate_limits"
+            self.redis_client.incr(rate_limit_key)
+            self.redis_client.expire(rate_limit_key, 86400)  # Expire after 24 hours
+            
+            # If rate limited too many times, mark for longer cooldown
+            rate_limits = int(self.redis_client.get(rate_limit_key) or 0)
+            if rate_limits >= 5:
+                # Put in extended cooldown for 2 hours
+                self.redis_client.setex(cooldown_key, 7200, '1')
+                # Reset counter
+                self.redis_client.delete(rate_limit_key)
         except Exception as e:
             print(f"Error marking cookie rate limited: {str(e)}")
 
-# Redis bağlantısı
+# Global instances
+load_dotenv()
+
+# Redis connection settings
+REDIS_HOST = os.getenv('REDIS_HOST', 'localhost')
+REDIS_PORT = int(os.getenv('REDIS_PORT', 6379))
+REDIS_DB = int(os.getenv('REDIS_DB', 0))
+REDIS_PASSWORD = os.getenv('REDIS_PASSWORD', None)
+
+# Redis client
 redis_client = redis.Redis(
-    host='localhost',
-    port=6379,
-    db=0,
+    host=REDIS_HOST,
+    port=REDIS_PORT,
+    db=REDIS_DB,
+    password=REDIS_PASSWORD,
     decode_responses=True
 )
 
-# Rate limiting için Redis kullanan sınıf
 class RedisRateLimiter:
-    def __init__(self, max_requests: int = 100, time_window: int = 60):
-        self.redis = redis_client
+    def __init__(self, max_requests=100, time_window=60):
+        self.redis_client = redis.Redis(
+            host=os.getenv('REDIS_HOST', 'localhost'),
+            port=int(os.getenv('REDIS_PORT', 6379)),
+            db=int(os.getenv('REDIS_DB', 0)),
+            password=os.getenv('REDIS_PASSWORD', None)
         self.max_requests = max_requests
         self.time_window = time_window
-        
-    def is_allowed(self, client_id: str) -> bool:
-        current = int(time.time())
-        key = f"rate_limit:{client_id}"
-        
-        pipe = self.redis.pipeline()
-        
-        # Eski kayıtları temizle ve yeni istek ekle
-        pipe.zremrangebyscore(key, 0, current - self.time_window)
-        pipe.zadd(key, {str(current): current})
-        pipe.zcard(key)
-        pipe.expire(key, self.time_window)
-        
-        _, _, request_count, _ = pipe.execute()
-        
-        return request_count <= self.max_requests
 
-# Task yönetimi için
+    async def is_rate_limited(self, key: str) -> bool:
+        try:
+            current = self.redis_client.get(key)
+            if current is None:
+                self.redis_client.setex(key, self.time_window, 1)
+                return False
+            
+            count = int(current)
+            if count >= self.max_requests:
+                return True
+            
+            self.redis_client.incr(key)
+            return False
+        except Exception as e:
+            print(f"Rate limiter error: {str(e)}")
+            return False
+
+    def get_remaining_requests(self, key: str) -> int:
+        try:
+            current = self.redis_client.get(key)
+            if current is None:
+                return self.max_requests
+            return max(0, self.max_requests - int(current))
+        except Exception as e:
+            print(f"Error getting remaining requests: {str(e)}")
+            return 0
+
 class TaskManager:
-    def __init__(self, max_age_minutes: int = 30):
-        self.tasks: Dict[str, dict] = {}
-        self.max_age = timedelta(minutes=max_age_minutes)
-        
-    def add_task(self, task_id: str, status: str = "processing"):
+    def __init__(self):
+        self.tasks = {}
+        self.redis_client = redis.Redis(
+            host=os.getenv('REDIS_HOST', 'localhost'),
+            port=int(os.getenv('REDIS_PORT', 6379)),
+            db=int(os.getenv('REDIS_DB', 0)),
+            password=os.getenv('REDIS_PASSWORD', None)
+        )
+
+    def add_task(self, task_id: str):
+        """Yeni task ekle"""
         self.tasks[task_id] = {
-            "status": status,
+            "status": "processing",
             "result": None,
-            "created_at": datetime.now()
+            "created_at": datetime.now().timestamp()
         }
-        
+
     def update_task(self, task_id: str, status: str, result: dict = None):
+        """Task durumunu güncelle"""
         if task_id in self.tasks:
             self.tasks[task_id]["status"] = status
             self.tasks[task_id]["result"] = result
-            
-    def get_task(self, task_id: str) -> Optional[dict]:
-        return self.tasks.get(task_id)
-        
-    def cleanup_old_tasks(self):
-        now = datetime.now()
-        old_tasks = [task_id for task_id, task in self.tasks.items()
-                    if now - task["created_at"] > self.max_age]
-        for task_id in old_tasks:
-            del self.tasks[task_id]
 
-# Global instances
-load_dotenv()
+    def get_task(self, task_id: str) -> dict:
+        """Task bilgilerini getir"""
+        return self.tasks.get(task_id)
+
+    def cleanup_old_tasks(self, max_age: int = 3600):
+        """Eski taskları temizle"""
+        current_time = datetime.now().timestamp()
+        self.tasks = {
+            task_id: task_data
+            for task_id, task_data in self.tasks.items()
+            if current_time - task_data["created_at"] < max_age
+        }
+
 rate_limiter = RedisRateLimiter(max_requests=100, time_window=60)
 task_manager = TaskManager()
 cookie_manager = CookieManager()
@@ -1658,18 +1725,26 @@ async def get_preview(request: Request):
         if shortcode.startswith('story_'):
             raise HTTPException(status_code=400, detail='Stories are not supported for preview')
 
-        max_retries = 3
+        max_retries = 5  # Increased from 3 to 5
         last_error = None
+        base_delay = 2  # Base delay in seconds
 
         for attempt in range(max_retries):
             try:
                 # Her denemede yeni bir cookie al
                 new_cookies = cookie_manager.get_next_cookie()
                 if not new_cookies:
-                    raise HTTPException(status_code=429, detail="Tüm cookie'ler kullanımda veya dinleniyor")
+                    # Wait before trying again if no cookies are available
+                    await asyncio.sleep(base_delay * (2 ** attempt))
+                    continue
 
                 loader = await loader_pool.get_loader()
                 loader_pool.load_cookies_to_loader(loader, new_cookies)
+
+                # Add exponential backoff delay between attempts
+                if attempt > 0:
+                    delay = base_delay * (2 ** (attempt - 1))
+                    await asyncio.sleep(delay)
 
                 post = instaloader.Post.from_shortcode(loader.context, shortcode)
                 
@@ -1705,19 +1780,33 @@ async def get_preview(request: Request):
                 return preview_info
 
             except Exception as e:
-                if "rate_limit" in str(e).lower():
+                error_msg = str(e).lower()
+                if "rate_limit" in error_msg or "please wait" in error_msg:
                     cookie_manager.mark_cookie_rate_limited(new_cookies)
-                elif "login_required" in str(e).lower() or "checkpoint_required" in str(e).lower():
+                    # Add longer delay for rate limits
+                    await asyncio.sleep(base_delay * (2 ** attempt) + 5)
+                elif "login_required" in error_msg or "checkpoint_required" in error_msg:
+                    cookie_manager.mark_cookie_challenge(new_cookies)
+                elif "unauthorized" in error_msg:
+                    # Mark cookie as challenged and try next one
                     cookie_manager.mark_cookie_challenge(new_cookies)
                 
                 if attempt < max_retries - 1:
                     continue
                 last_error = str(e)
 
-        raise HTTPException(status_code=500, detail=f"Failed to get preview: {last_error}")
+        raise HTTPException(
+            status_code=429,  # Changed from 500 to 429 for rate limit
+            detail="Rate limit exceeded. Please wait a few minutes before trying again."
+        )
 
     except Exception as e:
         logger.error(f"Preview error: {str(e)}")
+        if "rate_limit" in str(e).lower() or "please wait" in str(e).lower():
+            raise HTTPException(
+                status_code=429,
+                detail="Rate limit exceeded. Please wait a few minutes before trying again."
+            )
         raise HTTPException(status_code=500, detail=str(e))
 
 # Admin şifre güncelleme endpoint'i
@@ -1750,6 +1839,52 @@ async def update_password_endpoint(
     except Exception as e:
         logger.error(f"Update password error: {str(e)}")
         raise HTTPException(status_code=500, detail="An error occurred while updating password")
+
+def init_redis():
+    max_retries = 3
+    retry_delay = 2  # seconds
+    
+    for attempt in range(max_retries):
+        try:
+            redis_client = redis.Redis(
+                host=os.getenv('REDIS_HOST', 'localhost'),
+                port=int(os.getenv('REDIS_PORT', 6379)),
+                db=int(os.getenv('REDIS_DB', 0)),
+                password=os.getenv('REDIS_PASSWORD', None),
+                socket_timeout=5,
+                socket_connect_timeout=5,
+                retry_on_timeout=True,
+                decode_responses=True
+            )
+            # Test connection
+            redis_client.ping()
+            return redis_client
+        except (redis.ConnectionError, redis.TimeoutError) as e:
+            if attempt == max_retries - 1:  # Last attempt
+                print(f"Failed to connect to Redis after {max_retries} attempts: {str(e)}")
+                raise
+            print(f"Redis connection attempt {attempt + 1} failed, retrying in {retry_delay} seconds...")
+            time.sleep(retry_delay)
+            retry_delay *= 2  # Exponential backoff
+
+@app.on_event("startup")
+async def startup_event():
+    global rate_limiter, task_manager, cookie_manager
+    
+    try:
+        redis_client = init_redis()
+        rate_limiter = RedisRateLimiter(redis_client)
+        task_manager = TaskManager(redis_client)
+        cookie_manager = CookieManager()
+        
+        # Load initial cookies into pool
+        cookies = cookie_manager.load_cookies()
+        instaloader_pool = InstaloaderPool()
+        for cookie_id, cookie_data in cookies.items():
+            instaloader_pool.load_cookies_to_loader(cookie_id, cookie_data)
+    except Exception as e:
+        print(f"Startup error: {str(e)}")
+        raise
 
 if __name__ == "__main__":
     import uvicorn

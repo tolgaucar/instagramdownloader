@@ -7,6 +7,52 @@
     <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet" />
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://unpkg.com/axios/dist/axios.min.js"></script>
+    <style>
+        .tooltip {
+            position: relative;
+            display: inline-block;
+        }
+
+        .tooltip .tooltiptext {
+            visibility: hidden;
+            width: 200px;
+            background-color: #1f2937;
+            color: white;
+            text-align: center;
+            border-radius: 6px;
+            padding: 8px;
+            position: absolute;
+            z-index: 1;
+            bottom: 125%;
+            left: 50%;
+            transform: translateX(-50%);
+            opacity: 0;
+            transition: opacity 0.3s;
+        }
+
+        .tooltip:hover .tooltiptext {
+            visibility: visible;
+            opacity: 1;
+        }
+
+        .tab-btn.active {
+            border-color: #4F46E5;
+            color: #4F46E5;
+        }
+
+        .animate-fade-in {
+            animation: fadeIn 0.3s ease-in;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+
+        .transition-all {
+            transition: all 0.3s ease;
+        }
+    </style>
 </head>
 <body class="bg-gray-50">
     <div class="min-h-screen">
@@ -31,76 +77,169 @@
         <!-- Main content -->
         <div class="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
             <!-- Tabs -->
-            <div class="mb-4 border-b border-gray-200">
-                <nav class="-mb-px flex" aria-label="Tabs">
-                    <button onclick="showTab('languages')" class="tab-btn border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 w-1/4 py-4 px-1 text-center border-b-2 font-medium text-sm">
+            <div class="mb-6 bg-white shadow rounded-lg">
+                <nav class="flex" aria-label="Tabs">
+                    <button onclick="showTab('languages')" class="tab-btn flex-1 py-4 px-6 text-center font-medium text-sm border-b-2 transition-all hover:bg-gray-50">
+                        <svg class="w-5 h-5 mb-1 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 5h12M9 3v2m1.048 9.5A18.022 18.022 0 016.412 9m6.088 9h7M11 21l5-10 5 10M12.751 5C11.783 10.77 8.07 15.61 3 18.129"></path>
+                        </svg>
                         Languages & Translations
                     </button>
-                    <button onclick="showTab('cookies')" class="tab-btn border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 w-1/4 py-4 px-1 text-center border-b-2 font-medium text-sm">
+                    <button onclick="showTab('cookies')" class="tab-btn flex-1 py-4 px-6 text-center font-medium text-sm border-b-2 transition-all hover:bg-gray-50">
+                        <svg class="w-5 h-5 mb-1 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                        </svg>
                         Cookies
                     </button>
-                    <button onclick="showTab('admins')" class="tab-btn border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 w-1/4 py-4 px-1 text-center border-b-2 font-medium text-sm">
+                    <button onclick="showTab('admins')" class="tab-btn flex-1 py-4 px-6 text-center font-medium text-sm border-b-2 transition-all hover:bg-gray-50">
+                        <svg class="w-5 h-5 mb-1 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"></path>
+                        </svg>
                         Admins
                     </button>
                 </nav>
             </div>
 
             <!-- Languages Tab -->
-            <div id="languages" class="tab-content">
+            <div id="languages" class="tab-content space-y-6 animate-fade-in">
                 <div class="bg-white shadow rounded-lg p-6">
-                    <h2 class="text-lg font-medium mb-4">Add New Language</h2>
+                    <div class="flex items-center justify-between mb-4">
+                        <h2 class="text-lg font-medium">Add New Language</h2>
+                        <div class="tooltip">
+                            <svg class="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                            </svg>
+                            <span class="tooltiptext">Add a new language with its code (e.g., en, tr) and corresponding flag emoji</span>
+                        </div>
+                    </div>
                     <form id="addLanguageForm" class="space-y-4">
                         <div class="grid grid-cols-3 gap-4">
-                            <input type="text" name="code" placeholder="Language Code (e.g., en)" class="border rounded p-2">
-                            <input type="text" name="name" placeholder="Language Name" class="border rounded p-2">
-                            <input type="text" name="flag" placeholder="Flag Emoji" class="border rounded p-2">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">Language Code</label>
+                                <input type="text" name="code" placeholder="e.g., en" class="w-full border rounded p-2 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">Language Name</label>
+                                <input type="text" name="name" placeholder="e.g., English" class="w-full border rounded p-2 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">Flag</label>
+                                <div class="relative">
+                                    <input type="text" id="flagSearch" placeholder="Search country..." class="w-full border rounded p-2 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 mb-1">
+                                    <select name="flag" id="flagSelect" class="w-full border rounded p-2 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 h-32">
+                                    </select>
+                                </div>
+                            </div>
                         </div>
-                        <button type="submit" class="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600">Add Language</button>
+                        <button type="submit" class="w-full bg-indigo-600 text-white px-4 py-2 rounded hover:bg-indigo-700 transition-all flex items-center justify-center">
+                            <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path>
+                            </svg>
+                            Add Language
+                        </button>
                     </form>
                 </div>
 
-                <div class="mt-6 bg-white shadow rounded-lg p-6">
-                    <h2 class="text-lg font-medium mb-4">Manage Translations</h2>
-                    <select id="languageSelect" class="border rounded p-2 mb-4">
-                        {% for lang in languages %}
-                        <option value="{{ lang.code }}">{{ lang.name }} {{ lang.flag }}</option>
-                        {% endfor %}
-                    </select>
-                    <div class="flex gap-2 mb-4">
-                        <button onclick="loadDefaultTranslations()" class="bg-gray-500 text-white px-4 py-2 rounded hover:bg-gray-600">Load Default</button>
-                        <button onclick="loadCurrentTranslations()" class="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600">Load Current</button>
+                <div class="bg-white shadow rounded-lg p-6">
+                    <div class="flex items-center justify-between mb-4">
+                        <h2 class="text-lg font-medium">Manage Translations</h2>
+                        <div class="tooltip">
+                            <svg class="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                            </svg>
+                            <span class="tooltiptext">Edit translations for each language. Use Load Default for template, Load Current for existing translations</span>
+                        </div>
                     </div>
-                    <div id="translationsEditor" class="mt-4">
-                        <textarea id="translationsJson" rows="10" class="w-full border rounded p-2 font-mono text-sm"></textarea>
-                        <button onclick="updateTranslations()" class="mt-4 bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600">Update Translations</button>
+                    <div class="space-y-4">
+                        <div class="flex items-center gap-4">
+                            <select id="languageSelect" class="flex-1 border rounded p-2 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500">
+                                {% for lang in languages %}
+                                <option value="{{ lang.code }}">{{ lang.name }} {{ lang.flag }}</option>
+                                {% endfor %}
+                            </select>
+                            <button onclick="loadDefaultTranslations()" class="bg-gray-600 text-white px-4 py-2 rounded hover:bg-gray-700 transition-all flex items-center">
+                                <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
+                                </svg>
+                                Load Default
+                            </button>
+                            <button onclick="loadCurrentTranslations()" class="bg-indigo-600 text-white px-4 py-2 rounded hover:bg-indigo-700 transition-all flex items-center">
+                                <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path>
+                                </svg>
+                                Load Current
+                            </button>
+                        </div>
+                        <div id="translationsEditor">
+                            <textarea id="translationsJson" rows="15" class="w-full border rounded p-2 font-mono text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"></textarea>
+                            <button onclick="updateTranslations()" class="mt-4 w-full bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700 transition-all flex items-center justify-center">
+                                <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                                </svg>
+                                Update Translations
+                            </button>
+                        </div>
                     </div>
                 </div>
             </div>
 
             <!-- Cookies Tab -->
-            <div id="cookies" class="tab-content hidden">
+            <div id="cookies" class="tab-content space-y-6 animate-fade-in hidden">
                 <div class="bg-white shadow rounded-lg p-6">
-                    <h2 class="text-lg font-medium mb-4">Add New Cookie</h2>
+                    <div class="flex items-center justify-between mb-4">
+                        <h2 class="text-lg font-medium">Add New Cookie</h2>
+                        <div class="tooltip">
+                            <svg class="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                            </svg>
+                            <span class="tooltiptext">Add a new Instagram cookie with its ID and JSON data</span>
+                        </div>
+                    </div>
                     <form id="addCookieForm" class="space-y-4">
-                        <input type="text" name="id" placeholder="Cookie ID" class="w-full border rounded p-2">
-                        <textarea name="data" placeholder="Cookie Data (JSON)" rows="5" class="w-full border rounded p-2 font-mono text-sm"></textarea>
-                        <button type="submit" class="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600">Add Cookie</button>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Cookie ID</label>
+                            <input type="text" name="id" placeholder="Enter cookie ID" class="w-full border rounded p-2 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Cookie Data (JSON)</label>
+                            <textarea name="data" placeholder="Paste cookie JSON data" rows="5" class="w-full border rounded p-2 font-mono text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"></textarea>
+                        </div>
+                        <button type="submit" class="w-full bg-indigo-600 text-white px-4 py-2 rounded hover:bg-indigo-700 transition-all flex items-center justify-center">
+                            <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path>
+                            </svg>
+                            Add Cookie
+                        </button>
                     </form>
                 </div>
 
-                <div class="mt-6 bg-white shadow rounded-lg p-6">
-                    <h2 class="text-lg font-medium mb-4">Active Cookies</h2>
+                <div class="bg-white shadow rounded-lg p-6">
+                    <div class="flex items-center justify-between mb-4">
+                        <h2 class="text-lg font-medium">Active Cookies</h2>
+                        <div class="tooltip">
+                            <svg class="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                            </svg>
+                            <span class="tooltiptext">List of all active Instagram cookies and their status</span>
+                        </div>
+                    </div>
                     <div class="grid grid-cols-1 gap-4">
                         {% for cookie in cookies %}
-                        <div class="border rounded p-4" data-cookie-id="{{ cookie.id }}">
+                        <div class="border rounded-lg p-4 hover:shadow-md transition-all" data-cookie-id="{{ cookie.id }}">
                             <div class="flex justify-between items-center">
                                 <div>
-                                    <h3 class="font-medium">{{ cookie.id }}</h3>
-                                    <p class="text-sm {{ 'text-red-500' if cookie.cooldown else 'text-green-500' }}">
-                                        Status: {{ 'Cooling Down' if cookie.cooldown else 'Active' }}
+                                    <h3 class="font-medium text-lg">{{ cookie.id }}</h3>
+                                    <p class="text-sm {{ 'text-red-500' if cookie.cooldown else 'text-green-500' }} flex items-center">
+                                        <span class="w-2 h-2 rounded-full {{ 'bg-red-500' if cookie.cooldown else 'bg-green-500' }} mr-2"></span>
+                                        {{ 'Cooling Down' if cookie.cooldown else 'Active' }}
                                     </p>
                                 </div>
-                                <button onclick="deleteCookie('{{ cookie.id }}')" class="text-red-600 hover:text-red-800">Delete</button>
+                                <button onclick="deleteCookie('{{ cookie.id }}')" class="text-red-600 hover:text-red-800 transition-all flex items-center">
+                                    <svg class="w-5 h-5 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
+                                    </svg>
+                                    Delete
+                                </button>
                             </div>
                         </div>
                         {% endfor %}
@@ -109,46 +248,107 @@
             </div>
 
             <!-- Admins Tab -->
-            <div id="admins" class="tab-content hidden">
-                <!-- Şifre Değiştirme Formu -->
-                <div class="bg-white shadow rounded-lg p-6 mb-6">
-                    <h2 class="text-lg font-medium mb-4">Şifre Değiştir</h2>
+            <div id="admins" class="tab-content space-y-6 animate-fade-in hidden">
+                <div class="bg-white shadow rounded-lg p-6">
+                    <div class="flex items-center justify-between mb-4">
+                        <h2 class="text-lg font-medium">Change Password</h2>
+                        <div class="tooltip">
+                            <svg class="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                            </svg>
+                            <span class="tooltiptext">Change your admin account password</span>
+                        </div>
+                    </div>
                     <form id="changePasswordForm" class="space-y-4">
                         <div class="grid grid-cols-2 gap-4">
-                            <input type="password" name="current_password" placeholder="Mevcut Şifre" class="border rounded p-2" required>
-                            <input type="password" name="new_password" placeholder="Yeni Şifre" class="border rounded p-2" required>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">Current Password</label>
+                                <input type="password" name="current_password" class="w-full border rounded p-2 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" required>
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">New Password</label>
+                                <input type="password" name="new_password" class="w-full border rounded p-2 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" required>
+                            </div>
                         </div>
-                        <button type="submit" class="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600">Şifreyi Güncelle</button>
+                        <button type="submit" class="w-full bg-indigo-600 text-white px-4 py-2 rounded hover:bg-indigo-700 transition-all flex items-center justify-center">
+                            <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z"></path>
+                            </svg>
+                            Update Password
+                        </button>
                     </form>
                 </div>
 
-                <!-- Yeni Admin Ekleme -->
                 <div class="bg-white shadow rounded-lg p-6">
-                    <h2 class="text-lg font-medium mb-4">Add New Admin</h2>
+                    <div class="flex items-center justify-between mb-4">
+                        <h2 class="text-lg font-medium">Add New Admin</h2>
+                        <div class="tooltip">
+                            <svg class="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                            </svg>
+                            <span class="tooltiptext">Create a new admin account with username and password</span>
+                        </div>
+                    </div>
                     <form id="addAdminForm" class="space-y-4">
                         <div class="grid grid-cols-2 gap-4">
-                            <input type="text" name="username" placeholder="Username" class="border rounded p-2">
-                            <input type="password" name="password" placeholder="Password" class="border rounded p-2">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">Username</label>
+                                <input type="text" name="username" class="w-full border rounded p-2 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">Password</label>
+                                <input type="password" name="password" class="w-full border rounded p-2 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500">
+                            </div>
                         </div>
-                        <button type="submit" class="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600">Add Admin</button>
+                        <button type="submit" class="w-full bg-indigo-600 text-white px-4 py-2 rounded hover:bg-indigo-700 transition-all flex items-center justify-center">
+                            <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z"></path>
+                            </svg>
+                            Add Admin
+                        </button>
                     </form>
                 </div>
 
-                <div class="mt-6 bg-white shadow rounded-lg p-6">
-                    <h2 class="text-lg font-medium mb-4">Active Admins</h2>
+                <div class="bg-white shadow rounded-lg p-6">
+                    <div class="flex items-center justify-between mb-4">
+                        <h2 class="text-lg font-medium">Active Admins</h2>
+                        <div class="tooltip">
+                            <svg class="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                            </svg>
+                            <span class="tooltiptext">List of all active admin accounts</span>
+                        </div>
+                    </div>
                     <div class="grid grid-cols-1 gap-4">
                         {% for admin in admins %}
-                        <div class="border rounded p-4">
+                        <div class="border rounded-lg p-4 hover:shadow-md transition-all">
                             <div class="flex justify-between items-center">
                                 <div>
-                                    <h3 class="font-medium">{{ admin.username }}</h3>
-                                    <p class="text-sm text-gray-500">Created: {{ admin.created_at.strftime('%Y-%m-%d %H:%M:%S') }}</p>
-                                    {% if admin.last_login %}
-                                    <p class="text-sm text-gray-500">Last Login: {{ admin.last_login.strftime('%Y-%m-%d %H:%M:%S') }}</p>
-                                    {% endif %}
+                                    <h3 class="font-medium text-lg">{{ admin.username }}</h3>
+                                    <div class="space-y-1">
+                                        <p class="text-sm text-gray-500 flex items-center">
+                                            <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
+                                            </svg>
+                                            Created: {{ admin.created_at.strftime('%Y-%m-%d %H:%M:%S') }}
+                                        </p>
+                                        {% if admin.last_login %}
+                                        <p class="text-sm text-gray-500 flex items-center">
+                                            <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                                            </svg>
+                                            Last Login: {{ admin.last_login.strftime('%Y-%m-%d %H:%M:%S') }}
+                                        </p>
+                                        {% endif %}
+                                    </div>
                                 </div>
                                 {% if admin.id != current_admin.id %}
-                                <button onclick="deleteAdmin('{{ admin.id }}')" class="text-red-600 hover:text-red-800">Delete</button>
+                                <button onclick="deleteAdmin('{{ admin.id }}')" class="text-red-600 hover:text-red-800 transition-all flex items-center">
+                                    <svg class="w-5 h-5 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
+                                    </svg>
+                                    Delete
+                                </button>
                                 {% endif %}
                             </div>
                         </div>
@@ -237,7 +437,8 @@
                 'faq_title': 'Frequently asked questions(FAQ)',
                 'faq_desc': 'This FAQ provides information on frequent questions or concerns about the instatest.com downloader. if you can\'t find the answer to your question, feel free to ask through email on our contact page.',
                 'download_start_text': 'Your download will start automatically.',
-                'click_here': 'Click here'
+                'click_here': 'Click here',
+                'no_active_stories': 'User has no active stories'
             };
             
             document.getElementById('translationsJson').value = JSON.stringify(defaultTranslations, null, 2);
@@ -437,18 +638,168 @@
                 const result = await response.json();
                 
                 if (response.ok) {
-                    alert('Şifre başarıyla güncellendi');
+                    alert('Password updated successfully');
                     this.reset();
                 } else {
-                    alert(result.detail || 'Şifre güncellenirken bir hata oluştu');
+                    alert(result.detail || 'Failed to update password');
                 }
             } catch (error) {
-                alert('Şifre güncellenirken bir hata oluştu');
+                alert('Failed to update password');
             }
         });
 
         // Load initial translations
         document.getElementById('languageSelect').dispatchEvent(new Event('change'));
+
+        // Flag search functionality
+        const countryFlags = [
+            {flag: '🇦🇫', name: 'Afghanistan'},
+            {flag: '🇦🇱', name: 'Albania'},
+            {flag: '🇩🇿', name: 'Algeria'},
+            {flag: '��🇩', name: 'Andorra'},
+            {flag: '🇦🇴', name: 'Angola'},
+            {flag: '🇦��', name: 'Argentina'},
+            {flag: '🇦🇲', name: 'Armenia'},
+            {flag: '🇦🇺', name: 'Australia'},
+            {flag: '🇦🇹', name: 'Austria'},
+            {flag: '🇦🇿', name: 'Azerbaijan'},
+            {flag: '🇧🇸', name: 'Bahamas'},
+            {flag: '🇧🇭', name: 'Bahrain'},
+            {flag: '🇧🇩', name: 'Bangladesh'},
+            {flag: '🇧🇾', name: 'Belarus'},
+            {flag: '🇧🇪', name: 'Belgium'},
+            {flag: '🇧🇯', name: 'Benin'},
+            {flag: '🇧🇹', name: 'Bhutan'},
+            {flag: '🇧🇴', name: 'Bolivia'},
+            {flag: '🇧🇦', name: 'Bosnia and Herzegovina'},
+            {flag: '🇧🇷', name: 'Brazil'},
+            {flag: '🇧🇬', name: 'Bulgaria'},
+            {flag: '🇨🇦', name: 'Canada'},
+            {flag: '🇨🇱', name: 'Chile'},
+            {flag: '🇨🇳', name: 'China'},
+            {flag: '🇨🇴', name: 'Colombia'},
+            {flag: '🇨🇷', name: 'Costa Rica'},
+            {flag: '🇭🇷', name: 'Croatia'},
+            {flag: '🇨🇺', name: 'Cuba'},
+            {flag: '🇨🇾', name: 'Cyprus'},
+            {flag: '🇨🇿', name: 'Czech Republic'},
+            {flag: '🇩🇰', name: 'Denmark'},
+            {flag: '🇪🇨', name: 'Ecuador'},
+            {flag: '🇪🇬', name: 'Egypt'},
+            {flag: '🇪🇪', name: 'Estonia'},
+            {flag: '🇪🇹', name: 'Ethiopia'},
+            {flag: '🇫🇮', name: 'Finland'},
+            {flag: '🇫🇷', name: 'France'},
+            {flag: '🇬🇪', name: 'Georgia'},
+            {flag: '🇩🇪', name: 'Germany'},
+            {flag: '🇬🇭', name: 'Ghana'},
+            {flag: '🇬🇷', name: 'Greece'},
+            {flag: '🇭🇺', name: 'Hungary'},
+            {flag: '🇮🇸', name: 'Iceland'},
+            {flag: '🇮🇳', name: 'India'},
+            {flag: '🇮🇩', name: 'Indonesia'},
+            {flag: '🇮🇷', name: 'Iran'},
+            {flag: '🇮🇶', name: 'Iraq'},
+            {flag: '🇮🇪', name: 'Ireland'},
+            {flag: '🇮🇱', name: 'Israel'},
+            {flag: '🇮🇹', name: 'Italy'},
+            {flag: '🇯🇵', name: 'Japan'},
+            {flag: '🇯🇴', name: 'Jordan'},
+            {flag: '🇰🇿', name: 'Kazakhstan'},
+            {flag: '🇰🇪', name: 'Kenya'},
+            {flag: '🇰🇼', name: 'Kuwait'},
+            {flag: '🇱🇧', name: 'Lebanon'},
+            {flag: '🇱🇾', name: 'Libya'},
+            {flag: '🇱🇹', name: 'Lithuania'},
+            {flag: '🇱🇺', name: 'Luxembourg'},
+            {flag: '🇲🇾', name: 'Malaysia'},
+            {flag: '🇲🇹', name: 'Malta'},
+            {flag: '🇲🇽', name: 'Mexico'},
+            {flag: '🇲🇳', name: 'Mongolia'},
+            {flag: '🇲🇦', name: 'Morocco'},
+            {flag: '🇳🇵', name: 'Nepal'},
+            {flag: '🇳🇱', name: 'Netherlands'},
+            {flag: '🇳🇿', name: 'New Zealand'},
+            {flag: '🇳🇬', name: 'Nigeria'},
+            {flag: '🇰🇵', name: 'North Korea'},
+            {flag: '🇳🇴', name: 'Norway'},
+            {flag: '🇴🇲', name: 'Oman'},
+            {flag: '🇵🇰', name: 'Pakistan'},
+            {flag: '🇵🇸', name: 'Palestine'},
+            {flag: '🇵🇦', name: 'Panama'},
+            {flag: '🇵🇾', name: 'Paraguay'},
+            {flag: '🇵🇪', name: 'Peru'},
+            {flag: '🇵🇭', name: 'Philippines'},
+            {flag: '🇵🇱', name: 'Poland'},
+            {flag: '🇵🇹', name: 'Portugal'},
+            {flag: '🇶🇦', name: 'Qatar'},
+            {flag: '🇷🇴', name: 'Romania'},
+            {flag: '🇷🇺', name: 'Russia'},
+            {flag: '🇸🇦', name: 'Saudi Arabia'},
+            {flag: '🇷🇸', name: 'Serbia'},
+            {flag: '🇸🇬', name: 'Singapore'},
+            {flag: '🇸🇰', name: 'Slovakia'},
+            {flag: '🇸🇮', name: 'Slovenia'},
+            {flag: '🇿🇦', name: 'South Africa'},
+            {flag: '🇰🇷', name: 'South Korea'},
+            {flag: '🇪🇸', name: 'Spain'},
+            {flag: '🇱🇰', name: 'Sri Lanka'},
+            {flag: '🇸🇪', name: 'Sweden'},
+            {flag: '🇨🇭', name: 'Switzerland'},
+            {flag: '🇸🇾', name: 'Syria'},
+            {flag: '🇹🇼', name: 'Taiwan'},
+            {flag: '🇹🇯', name: 'Tajikistan'},
+            {flag: '🇹🇭', name: 'Thailand'},
+            {flag: '🇹🇳', name: 'Tunisia'},
+            {flag: '🇹🇷', name: 'Turkey'},
+            {flag: '🇹🇲', name: 'Turkmenistan'},
+            {flag: '🇺🇦', name: 'Ukraine'},
+            {flag: '🇦🇪', name: 'United Arab Emirates'},
+            {flag: '🇬🇧', name: 'United Kingdom'},
+            {flag: '🇺🇸', name: 'United States'},
+            {flag: '🇺🇾', name: 'Uruguay'},
+            {flag: '🇺🇿', name: 'Uzbekistan'},
+            {flag: '🇻🇪', name: 'Venezuela'},
+            {flag: '🇻🇳', name: 'Vietnam'},
+            {flag: '🇾🇪', name: 'Yemen'},
+            {flag: '🇿🇼', name: 'Zimbabwe'}
+        ];
+
+        // Initialize flag select
+        function initializeFlagSelect() {
+            const flagSelect = document.getElementById('flagSelect');
+            flagSelect.innerHTML = ''; // Clear existing options
+            
+            countryFlags.forEach(country => {
+                const option = document.createElement('option');
+                option.value = country.flag;
+                option.textContent = `${country.flag} ${country.name}`;
+                flagSelect.appendChild(option);
+            });
+        }
+
+        // Dynamic flag search
+        document.getElementById('flagSearch').addEventListener('input', function(e) {
+            const searchText = e.target.value.toLowerCase();
+            const flagSelect = document.getElementById('flagSelect');
+            flagSelect.innerHTML = ''; // Clear current options
+            
+            const filteredCountries = countryFlags.filter(country => 
+                country.name.toLowerCase().includes(searchText)
+            );
+            
+            filteredCountries.forEach(country => {
+                const option = document.createElement('option');
+                option.value = country.flag;
+                option.textContent = `${country.flag} ${country.name}`;
+                flagSelect.appendChild(option);
+            });
+        });
+
+        // Initialize flags when page loads
+        document.addEventListener('DOMContentLoaded', function() {
+            initializeFlagSelect();
+        });
     </script>
 </body>
 </html> 
