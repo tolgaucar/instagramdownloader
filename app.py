@@ -203,7 +203,7 @@ class CookieManager:
         try:
             cookie_files = [f for f in os.listdir(self.cookies_dir) if f.endswith('.json')]
             available_cookies = []
-            
+
             for cookie_file in cookie_files:
                 cookie_id = cookie_file.replace('.json', '')
                 
@@ -225,7 +225,7 @@ class CookieManager:
                 if total_requests > 5 and success_rate < 20:
                     logger.debug(f"Cookie {cookie_id} has poor health (success rate: {success_rate}%)")
                     continue
-                
+
                 try:
                     with open(os.path.join(self.cookies_dir, cookie_file), 'r') as f:
                         cookie_data = json.load(f)
@@ -954,10 +954,6 @@ async def combined_middleware(request: Request, call_next):
     if request.url.path in ["/system-status", "/admin"]:
         return await call_next(request)
     
-    # Root path kontrolü
-    if request.url.path == "/":
-        return RedirectResponse(url="/en", status_code=302)
-    
     response = await call_next(request)
     
     # Response süresini hesapla ve logla
@@ -1181,15 +1177,15 @@ async def download_media_from_instagram(url: str, client_id: str) -> dict:
             # Mark cookie as successful
             if current_cookie:
                 cookie_manager.mark_cookie_success({"id": current_cookie})
-
-            return {
-                'success': True,
-                'media_urls': media_urls,
-                'type': 'video' if post.is_video else 'image',
-                'caption': post.caption if post.caption else '',
-                'owner': post.owner_username,
-                'timestamp': post.date_local.isoformat()
-            }
+        
+        return {
+            'success': True,
+            'media_urls': media_urls,
+            'type': 'video' if post.is_video else 'image',
+            'caption': post.caption if post.caption else '',
+            'owner': post.owner_username,
+            'timestamp': post.date_local.isoformat()
+        }
 
         return await download_attempt()
 
@@ -1221,7 +1217,7 @@ async def handle_download(request: Request, download_req: DownloadRequest):
         try:
             result = await download_media_from_instagram(download_req.url, client_id)
             task_manager.update_task(task_id, "completed", result)
-            
+        
             return {
                 "task_id": task_id,
                 "status": "SUCCESS",
@@ -1305,37 +1301,29 @@ def get_languages() -> list:
         db.close()
 
 @app.get("/", response_class=HTMLResponse)
-async def root_redirect():
-    """Varsayılan dile yönlendir"""
-    return RedirectResponse(url="/en", status_code=302)
+async def root(request: Request):
+    """Root endpoint - serves English content directly"""
+    return await read_root(request, "en")
 
 @app.get("/{lang_code}", response_class=HTMLResponse)
 async def read_root(request: Request, lang_code: str):
-    """Ana sayfa"""
-    # Dil kontrolü
-    db = Session()
-    try:
-        language = db.query(Language).filter_by(code=lang_code, is_active=True).first()
+    """Language specific content"""
+    # Dil kodunu kontrol et
+    if not get_language(lang_code):
+        lang_code = "en"  # Varsayılan dil
         
-        if not language:
-            return RedirectResponse(url="/en", status_code=302)
-        
-        # Çevirileri ve dilleri al
-        translations = get_translations(lang_code)
-        languages = get_languages()
-        
-        # Template'i render et
-        return templates.TemplateResponse(
-            "index.html",
-            {
-                "request": request,
-                "translations": translations,
-                "current_lang": lang_code,
-                "languages": languages
-            }
-        )
-    finally:
-        db.close()
+    translations = get_translations(lang_code)
+    languages = get_languages()
+    
+    return templates.TemplateResponse(
+        "index.html",
+        {
+            "request": request,
+            "translations": translations,
+            "languages": languages,
+            "current_lang": lang_code
+        }
+    )
 
 def get_shortcode_from_url(url: str) -> str:
     """URL'den shortcode çıkar"""
@@ -1696,33 +1684,35 @@ async def get_preview(request: Request):
         if shortcode.startswith('story_'):
             raise HTTPException(status_code=400, detail='Stories are not supported for preview')
 
-        max_retries = 5
-        base_delay = 2  # Base delay in seconds
+        max_retries = 10  # Increased max retries
+        base_delay = 1  # Reduced base delay
         last_error = None
         used_cookies = set()
+        rate_limited_cookies = set()
 
         for attempt in range(max_retries):
             try:
-                # Get a new cookie that hasn't been used in this request yet
+                # Get a new cookie that hasn't been used or rate limited in this request
                 new_cookies = cookie_manager.get_next_cookie()
+                
                 if not new_cookies:
-                    await asyncio.sleep(base_delay * (2 ** attempt))
-                    logger.warning(f"No available cookies, waiting {base_delay * (2 ** attempt)}s before retry")
+                    logger.warning(f"No available cookies, waiting {base_delay}s before retry")
+                    await asyncio.sleep(base_delay)
                     continue
 
                 cookie_id = new_cookies.get('ds_user_id')
-                if cookie_id in used_cookies:
-                    logger.debug(f"Cookie {cookie_id} already used in this request, skipping")
+                if cookie_id in used_cookies or cookie_id in rate_limited_cookies:
+                    logger.debug(f"Cookie {cookie_id} already used/rate limited in this request, skipping")
                     continue
-                used_cookies.add(cookie_id)
 
+                used_cookies.add(cookie_id)
+                
                 loader = await loader_pool.get_loader()
                 loader_pool.load_cookies_to_loader(loader, new_cookies)
 
-                # Add exponential backoff delay between attempts
+                # Add small delay between attempts
                 if attempt > 0:
-                    delay = base_delay * (2 ** (attempt - 1))
-                    await asyncio.sleep(delay)
+                    await asyncio.sleep(base_delay)
 
                 post = instaloader.Post.from_shortcode(loader.context, shortcode)
                 
@@ -1769,12 +1759,14 @@ async def get_preview(request: Request):
                 error_msg = str(e).lower()
                 if new_cookies:
                     if "rate_limit" in error_msg or "please wait" in error_msg:
+                        logger.warning(f"Cookie {cookie_id} rate limited, marking and trying next")
                         cookie_manager.mark_cookie_rate_limited(new_cookies)
-                        await asyncio.sleep(base_delay * (2 ** attempt) + 5)
-                    elif "login_required" in error_msg or "checkpoint_required" in error_msg:
+                        rate_limited_cookies.add(cookie_id)
+                        continue  # Skip delay and try next cookie immediately
+                    elif "login_required" in error_msg or "checkpoint_required" in error_msg or "unauthorized" in error_msg:
+                        logger.warning(f"Cookie {cookie_id} challenged, marking and trying next")
                         cookie_manager.mark_cookie_challenge(new_cookies)
-                    elif "unauthorized" in error_msg:
-                        cookie_manager.mark_cookie_challenge(new_cookies)
+                        continue  # Skip delay and try next cookie immediately
                 
                 if attempt < max_retries - 1:
                     logger.warning(f"Attempt {attempt + 1} failed: {str(e)}")
@@ -1785,7 +1777,7 @@ async def get_preview(request: Request):
         logger.error(f"All preview attempts failed. Last error: {last_error}")
         raise HTTPException(
             status_code=429,
-            detail="Rate limit exceeded. Please wait a few minutes before trying again."
+            detail="All available cookies are rate limited. Please try again later."
         )
 
     except HTTPException as he:
@@ -1795,7 +1787,7 @@ async def get_preview(request: Request):
         if "rate_limit" in str(e).lower() or "please wait" in str(e).lower():
             raise HTTPException(
                 status_code=429,
-                detail="Rate limit exceeded. Please wait a few minutes before trying again."
+                detail="Rate limit exceeded. Please try again later."
             )
         raise HTTPException(status_code=500, detail=str(e))
 
