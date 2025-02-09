@@ -170,6 +170,30 @@ class CookieManager:
         if not os.path.exists(self.cookies_dir):
             os.makedirs(self.cookies_dir)
 
+    def get_cookies(self) -> list:
+        """Tüm cookie'leri ve durumlarını getir"""
+        cookies = []
+        try:
+            cookie_files = [f for f in os.listdir(self.cookies_dir) if f.endswith('.json')]
+            
+            for cookie_file in cookie_files:
+                cookie_id = cookie_file.replace('.json', '')
+                
+                # Cookie durumunu kontrol et
+                cooldown = self.is_cookie_in_cooldown(cookie_id)
+                health = self.get_cookie_health(cookie_id)
+                
+                cookies.append({
+                    'id': cookie_id,
+                    'cooldown': cooldown,
+                    'health': health
+                })
+            
+            return cookies
+        except Exception as e:
+            logger.error(f"Error getting cookies: {str(e)}")
+            return []
+
     def _get_cookie_health_key(self, cookie_id: str) -> str:
         return f"cookie:{cookie_id}:health"
 
