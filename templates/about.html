@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="{{ current_lang }}">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>{{ translations.about_title }} - InstaTest</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet" />
+</head>
+<body class="bg-gray-50">
+    <!-- Navigation -->
+    <nav class="bg-white shadow-sm">
+        <div class="container mx-auto px-4">
+            <div class="flex justify-between items-center h-16">
+                <a href="/{{ current_lang }}" class="text-xl font-bold text-indigo-600">InstaTest</a>
+                <div class="flex items-center space-x-4">
+                    <a href="/{{ current_lang }}/about" class="text-gray-700 hover:text-indigo-600">{{ translations.about_title }}</a>
+                    <a href="/{{ current_lang }}/contact" class="text-gray-700 hover:text-indigo-600">{{ translations.contact_title }}</a>
+                    <div class="relative">
+                        <select onchange="window.location.href=this.value" class="appearance-none bg-white border rounded-md px-3 py-1">
+                            {% for lang in languages %}
+                            <option value="/{{ lang.code }}/about" {% if lang.code == current_lang %}selected{% endif %}>
+                                {{ lang.flag }} {{ lang.name }}
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Header -->
+    <header class="bg-indigo-600 text-white">
+        <div class="container mx-auto px-4 py-16">
+            <div class="max-w-4xl mx-auto text-center">
+                <h1 class="text-5xl font-bold mb-4">{{ translations.about_title }}</h1>
+                <p class="text-xl opacity-90">{{ translations.about_subtitle }}</p>
+            </div>
+        </div>
+    </header>
+
+    <main class="container mx-auto px-4 py-12">
+        <div class="max-w-4xl mx-auto">
+            <!-- Company Story Section -->
+            <section class="mb-16">
+                <div class="bg-white rounded-xl p-8 shadow-sm">
+                    <h2 class="text-3xl font-bold mb-6">{{ translations.about_story_title }}</h2>
+                    <div class="prose prose-lg text-gray-600">
+                        <p class="mb-4">{{ translations.about_story_p1 }}</p>
+                        <p class="mb-4">{{ translations.about_story_p2 }}</p>
+                        <p>{{ translations.about_story_p3 }}</p>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Mission & Vision Section -->
+            <section class="mb-16">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+                    <!-- Mission -->
+                    <div class="bg-white rounded-xl p-8 shadow-sm">
+                        <div class="text-indigo-600 mb-4">
+                            <svg class="w-12 h-12" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M13 10V3L4 14h7v7l9-11h-7z"></path>
+                            </svg>
+                        </div>
+                        <h2 class="text-2xl font-bold mb-4">{{ translations.about_mission_title }}</h2>
+                        <p class="text-gray-600">{{ translations.about_mission_text }}</p>
+                    </div>
+
+                    <!-- Vision -->
+                    <div class="bg-white rounded-xl p-8 shadow-sm">
+                        <div class="text-indigo-600 mb-4">
+                            <svg class="w-12 h-12" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z">
+                                </path>
+                            </svg>
+                        </div>
+                        <h2 class="text-2xl font-bold mb-4">{{ translations.about_vision_title }}</h2>
+                        <p class="text-gray-600">{{ translations.about_vision_text }}</p>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Values Section -->
+            <section class="mb-16">
+                <h2 class="text-3xl font-bold text-center mb-8">{{ translations.about_values_title }}</h2>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    <!-- Value 1 -->
+                    <div class="bg-white rounded-xl p-6 shadow-sm">
+                        <div class="text-indigo-600 mb-4">
+                            <svg class="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z">
+                                </path>
+                            </svg>
+                        </div>
+                        <h3 class="text-xl font-semibold mb-2">{{ translations.about_value1_title }}</h3>
+                        <p class="text-gray-600">{{ translations.about_value1_text }}</p>
+                    </div>
+
+                    <!-- Value 2 -->
+                    <div class="bg-white rounded-xl p-6 shadow-sm">
+                        <div class="text-indigo-600 mb-4">
+                            <svg class="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M13 10V3L4 14h7v7l9-11h-7z"></path>
+                            </svg>
+                        </div>
+                        <h3 class="text-xl font-semibold mb-2">{{ translations.about_value2_title }}</h3>
+                        <p class="text-gray-600">{{ translations.about_value2_text }}</p>
+                    </div>
+
+                    <!-- Value 3 -->
+                    <div class="bg-white rounded-xl p-6 shadow-sm">
+                        <div class="text-indigo-600 mb-4">
+                            <svg class="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z">
+                                </path>
+                            </svg>
+                        </div>
+                        <h3 class="text-xl font-semibold mb-2">{{ translations.about_value3_title }}</h3>
+                        <p class="text-gray-600">{{ translations.about_value3_text }}</p>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Stats Section -->
+            <section class="mb-16">
+                <div class="bg-indigo-600 rounded-xl p-8 text-white">
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-8">
+                        <div class="text-center">
+                            <div class="text-4xl font-bold mb-2">1M+</div>
+                            <div class="text-indigo-200">{{ translations.about_stats_downloads }}</div>
+                        </div>
+                        <div class="text-center">
+                            <div class="text-4xl font-bold mb-2">50K+</div>
+                            <div class="text-indigo-200">{{ translations.about_stats_users }}</div>
+                        </div>
+                        <div class="text-center">
+                            <div class="text-4xl font-bold mb-2">99.9%</div>
+                            <div class="text-indigo-200">{{ translations.about_stats_uptime }}</div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </div>
+    </main>
+</body>
+</html> 

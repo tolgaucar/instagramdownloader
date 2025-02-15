@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="{{ current_lang }}">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>{{ translations.contact_title }} - InstaTest</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet" />
+</head>
+<body class="bg-gray-50">
+    <!-- Navigation -->
+    <nav class="bg-white shadow-sm">
+        <div class="container mx-auto px-4">
+            <div class="flex justify-between items-center h-16">
+                <a href="/{{ current_lang }}" class="text-xl font-bold text-indigo-600">InstaTest</a>
+                <div class="flex items-center space-x-4">
+                    <a href="/{{ current_lang }}/about" class="text-gray-700 hover:text-indigo-600">{{ translations.about_title }}</a>
+                    <a href="/{{ current_lang }}/contact" class="text-gray-700 hover:text-indigo-600">{{ translations.contact_title }}</a>
+                    <div class="relative">
+                        <select onchange="window.location.href=this.value" class="appearance-none bg-white border rounded-md px-3 py-1">
+                            {% for lang in languages %}
+                            <option value="/{{ lang.code }}/contact" {% if lang.code == current_lang %}selected{% endif %}>
+                                {{ lang.flag }} {{ lang.name }}
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Header -->
+    <header class="bg-indigo-600 text-white">
+        <div class="container mx-auto px-4 py-16">
+            <div class="max-w-4xl mx-auto text-center">
+                <h1 class="text-5xl font-bold mb-4">{{ translations.contact_title }}</h1>
+                <p class="text-xl opacity-90">{{ translations.contact_subtitle }}</p>
+            </div>
+        </div>
+    </header>
+
+    <main class="container mx-auto px-4 py-12">
+        <div class="max-w-4xl mx-auto">
+            <!-- Contact Form Section -->
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-12">
+                <!-- Contact Form -->
+                <div class="bg-white rounded-xl p-8 shadow-sm">
+                    <h2 class="text-2xl font-semibold mb-6">{{ translations.contact_form_title }}</h2>
+                    <form id="contact-form" class="space-y-4">
+                        <div>
+                            <label class="block text-gray-700 text-sm font-bold mb-2" for="name">
+                                {{ translations.contact_name }}
+                            </label>
+                            <input type="text" id="name" name="name" required
+                                class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-600">
+                        </div>
+                        <div>
+                            <label class="block text-gray-700 text-sm font-bold mb-2" for="email">
+                                {{ translations.contact_email }}
+                            </label>
+                            <input type="email" id="email" name="email" required
+                                class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-600">
+                        </div>
+                        <div>
+                            <label class="block text-gray-700 text-sm font-bold mb-2" for="subject">
+                                {{ translations.contact_subject }}
+                            </label>
+                            <input type="text" id="subject" name="subject" required
+                                class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-600">
+                        </div>
+                        <div>
+                            <label class="block text-gray-700 text-sm font-bold mb-2" for="message">
+                                {{ translations.contact_message }}
+                            </label>
+                            <textarea id="message" name="message" rows="4" required
+                                class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-600"></textarea>
+                        </div>
+                        <button type="submit"
+                            class="w-full bg-indigo-600 text-white py-2 px-4 rounded-lg hover:bg-indigo-700 transition duration-200">
+                            {{ translations.contact_send }}
+                        </button>
+                    </form>
+                </div>
+
+                <!-- Contact Information -->
+                <div class="space-y-8">
+                    <div class="bg-white rounded-xl p-8 shadow-sm">
+                        <h2 class="text-2xl font-semibold mb-6">{{ translations.contact_info_title }}</h2>
+                        <div class="space-y-4">
+                            <div class="flex items-start space-x-4">
+                                <svg class="w-6 h-6 text-indigo-600 mt-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                        d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z">
+                                    </path>
+                                </svg>
+                                <div>
+                                    <h3 class="font-semibold text-gray-800">{{ translations.contact_email_title }}</h3>
+                                    <p class="text-gray-600">support@instatest.com</p>
+                                </div>
+                            </div>
+                            <div class="flex items-start space-x-4">
+                                <svg class="w-6 h-6 text-indigo-600 mt-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                        d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z">
+                                    </path>
+                                </svg>
+                                <div>
+                                    <h3 class="font-semibold text-gray-800">{{ translations.contact_phone_title }}</h3>
+                                    <p class="text-gray-600">+1 (555) 123-4567</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- FAQ Section -->
+            <div class="mt-16">
+                <h2 class="text-3xl font-bold text-center mb-8">{{ translations.contact_faq_title }}</h2>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <!-- FAQ Items -->
+                    <div class="bg-white rounded-xl p-6 shadow-sm">
+                        <h3 class="font-semibold text-lg mb-2">{{ translations.contact_faq1_q }}</h3>
+                        <p class="text-gray-600">{{ translations.contact_faq1_a }}</p>
+                    </div>
+                    <div class="bg-white rounded-xl p-6 shadow-sm">
+                        <h3 class="font-semibold text-lg mb-2">{{ translations.contact_faq2_q }}</h3>
+                        <p class="text-gray-600">{{ translations.contact_faq2_a }}</p>
+                    </div>
+                    <div class="bg-white rounded-xl p-6 shadow-sm">
+                        <h3 class="font-semibold text-lg mb-2">{{ translations.contact_faq3_q }}</h3>
+                        <p class="text-gray-600">{{ translations.contact_faq3_a }}</p>
+                    </div>
+                    <div class="bg-white rounded-xl p-6 shadow-sm">
+                        <h3 class="font-semibold text-lg mb-2">{{ translations.contact_faq4_q }}</h3>
+                        <p class="text-gray-600">{{ translations.contact_faq4_a }}</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <script>
+        document.getElementById('contact-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const formData = new FormData(e.target);
+            const data = Object.fromEntries(formData.entries());
+            
+            try {
+                const response = await fetch('/api/contact', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(data),
+                });
+                
+                if (response.ok) {
+                    alert('{{ translations.contact_success }}');
+                    e.target.reset();
+                } else {
+                    alert('{{ translations.contact_error }}');
+                }
+            } catch (error) {
+                alert('{{ translations.contact_error }}');
+            }
+        });
+    </script>
+</body>
+</html> 

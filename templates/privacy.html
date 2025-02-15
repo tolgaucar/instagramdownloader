@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="{{ current_lang }}">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>{{ translations.privacy_title }} - InstaTest</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet" />
+</head>
+<body class="bg-gray-50">
+    <!-- Navigation -->
+    <nav class="bg-white shadow-sm">
+        <div class="container mx-auto px-4">
+            <div class="flex justify-between items-center h-16">
+                <a href="/{{ current_lang }}" class="text-xl font-bold text-indigo-600">InstaTest</a>
+                <div class="flex items-center space-x-4">
+                    <a href="/{{ current_lang }}/about" class="text-gray-700 hover:text-indigo-600">{{ translations.about_title }}</a>
+                    <a href="/{{ current_lang }}/contact" class="text-gray-700 hover:text-indigo-600">{{ translations.contact_title }}</a>
+                    <div class="relative">
+                        <select onchange="window.location.href=this.value" class="appearance-none bg-white border rounded-md px-3 py-1">
+                            {% for lang in languages %}
+                            <option value="/{{ lang.code }}/privacy" {% if lang.code == current_lang %}selected{% endif %}>
+                                {{ lang.flag }} {{ lang.name }}
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Header -->
+    <header class="bg-indigo-600 text-white">
+        <div class="container mx-auto px-4 py-16">
+            <div class="max-w-4xl mx-auto text-center">
+                <h1 class="text-5xl font-bold mb-4">{{ translations.privacy_title }}</h1>
+                <p class="text-xl opacity-90">{{ translations.privacy_subtitle }}</p>
+            </div>
+        </div>
+    </header>
+
+    <main class="container mx-auto px-4 py-12">
+        <div class="max-w-4xl mx-auto">
+            <!-- Introduction -->
+            <section class="bg-white rounded-xl p-8 shadow-sm mb-8">
+                <div class="prose prose-lg max-w-none">
+                    <p>{{ translations.privacy_intro }}</p>
+                </div>
+            </section>
+
+            <!-- Data Collection -->
+            <section class="bg-white rounded-xl p-8 shadow-sm mb-8">
+                <h2 class="text-2xl font-bold mb-4">{{ translations.privacy_collection_title }}</h2>
+                <div class="prose prose-lg max-w-none">
+                    <p>{{ translations.privacy_collection_text }}</p>
+                </div>
+            </section>
+
+            <!-- Data Usage -->
+            <section class="bg-white rounded-xl p-8 shadow-sm mb-8">
+                <h2 class="text-2xl font-bold mb-4">{{ translations.privacy_usage_title }}</h2>
+                <div class="prose prose-lg max-w-none">
+                    <p>{{ translations.privacy_usage_text }}</p>
+                </div>
+            </section>
+
+            <!-- Cookies -->
+            <section class="bg-white rounded-xl p-8 shadow-sm mb-8">
+                <h2 class="text-2xl font-bold mb-4">{{ translations.privacy_cookies_title }}</h2>
+                <div class="prose prose-lg max-w-none">
+                    <p>{{ translations.privacy_cookies_text }}</p>
+                </div>
+            </section>
+
+            <!-- Security -->
+            <section class="bg-white rounded-xl p-8 shadow-sm mb-8">
+                <h2 class="text-2xl font-bold mb-4">{{ translations.privacy_security_title }}</h2>
+                <div class="prose prose-lg max-w-none">
+                    <p>{{ translations.privacy_security_text }}</p>
+                </div>
+            </section>
+
+            <!-- Changes -->
+            <section class="bg-white rounded-xl p-8 shadow-sm">
+                <h2 class="text-2xl font-bold mb-4">{{ translations.privacy_changes_title }}</h2>
+                <div class="prose prose-lg max-w-none">
+                    <p>{{ translations.privacy_changes_text }}</p>
+                </div>
+            </section>
+        </div>
+    </main>
+</body>
+</html> 

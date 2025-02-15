@@ -79,7 +79,7 @@ def init_db():
             # İngilizce çeviriler
             default_en_translations = {
                 'site_name': 'InstaTest',
-                'title': 'Instagram Media Downloader Tool',
+                'title': 'Instagram Media Downloader',
                 'subtitle': 'Download Instagram stories, reels, and posts easily',
                 'input_placeholder': 'Insert Instagram link here',
                 'paste_button': 'Paste',
@@ -119,17 +119,69 @@ def init_db():
                 'footer_contact': 'Contact',
                 'footer_copyright': '© 2024 InstaTest. All rights reserved.',
                 'footer_disclaimer': 'This tool is not affiliated with Instagram.',
-                # SEO Section
                 'seo_title': 'What is Instagram Downloader?',
-                'seo_content': '''Instagram Downloader is a powerful online tool designed to help users save and download content from Instagram. As social media becomes increasingly central to our daily lives, the need to save and archive Instagram content has grown significantly. Whether you\'re a content creator, social media manager, or simply someone who wants to keep memorable posts, our Instagram downloader provides a reliable solution.
+                'seo_content': 'Instagram Downloader is a powerful online tool designed to help users save and download content from Instagram...',
 
-Our tool supports various types of Instagram content, including photos, videos, stories, and reels. Unlike many other downloaders, we prioritize both quality and user privacy. All downloads maintain the original content quality, ensuring you get the best possible version of the media you want to save.
+                # About page translations
+                'about_title': 'About Us',
+                'about_subtitle': 'Get to Know Us Better',
+                'about_story_title': 'Our Story',
+                'about_story_p1': 'Founded in 2024, InstaTest was born from the need to safely and easily download Instagram content.',
+                'about_story_p2': 'We aim to provide a high-quality download experience while prioritizing user privacy and data security.',
+                'about_story_p3': 'We continue to improve ourselves by serving more users every day.',
+                'about_mission_title': 'Our Mission',
+                'about_mission_text': 'To provide the ability to download Instagram content at the highest quality, securely and quickly.',
+                'about_vision_title': 'Our Vision',
+                'about_vision_text': 'To become the world\'s most trusted and preferred platform for social media content downloading.',
+                'about_values_title': 'Our Values',
+                'about_value1_title': 'User Focus',
+                'about_value1_text': 'We always prioritize our users\' needs and privacy.',
+                'about_value2_title': 'Continuous Improvement',
+                'about_value2_text': 'We provide the best experience by continuously improving our services and technology.',
+                'about_value3_title': 'Reliability',
+                'about_value3_text': 'We earn our users\' trust by providing secure and uninterrupted service.',
+                'about_stats_downloads': 'Downloads',
+                'about_stats_users': 'Active Users',
+                'about_stats_uptime': 'Uptime',
 
-One of the key advantages of using our Instagram downloader is its simplicity. You don\'t need any technical knowledge or additional software - just paste the URL of the content you want to download, and our system handles the rest. This makes it accessible to everyone, from social media professionals to casual Instagram users.
+                # Contact page translations
+                'contact_title': 'Contact',
+                'contact_subtitle': 'Get in Touch with Us',
+                'contact_form_title': 'Send a Message',
+                'contact_name': 'Your Name',
+                'contact_email': 'Your Email',
+                'contact_subject': 'Subject',
+                'contact_message': 'Your Message',
+                'contact_send': 'Send',
+                'contact_success': 'Your message has been sent successfully!',
+                'contact_error': 'An error occurred while sending the message.',
+                'contact_info_title': 'Contact Information',
+                'contact_email_title': 'Email',
+                'contact_phone_title': 'Phone',
+                'contact_faq_title': 'Frequently Asked Questions',
+                'contact_faq1_q': 'How can I download?',
+                'contact_faq1_a': 'Just paste the Instagram link into the input field and click the Download button.',
+                'contact_faq2_q': 'Is it paid?',
+                'contact_faq2_a': 'No, our service is completely free.',
+                'contact_faq3_q': 'Do I need an Instagram account?',
+                'contact_faq3_a': 'No, you don\'t need an Instagram account to download.',
+                'contact_faq4_q': 'Is it safe?',
+                'contact_faq4_a': 'Yes, all operations are performed securely and anonymously.',
 
-We also understand the importance of privacy and security in today\'s digital age. Our downloader operates without requiring you to log in to your Instagram account, ensuring your personal information remains protected. Additionally, we don\'t store any of your download history or personal data.
-
-Whether you\'re creating a content portfolio, saving inspiration for future projects, or just wanting to keep precious memories, our Instagram downloader provides a fast, reliable, and secure way to save Instagram content.'''
+                # Privacy Policy translations
+                'privacy_title': 'Privacy Policy',
+                'privacy_subtitle': 'How we handle your data',
+                'privacy_intro': 'At InstaTest, we take your privacy seriously. This policy explains how we collect, use, and protect your personal information.',
+                'privacy_collection_title': 'Information We Collect',
+                'privacy_collection_text': 'We only collect the information necessary to provide our service, such as the Instagram links you submit for downloading. We do not store any personal information or download history.',
+                'privacy_usage_title': 'How We Use Your Information',
+                'privacy_usage_text': 'The information you provide is used solely for processing your download requests. We do not share your information with third parties or use it for marketing purposes.',
+                'privacy_cookies_title': 'Cookies and Tracking',
+                'privacy_cookies_text': 'We use essential cookies to ensure the proper functioning of our service. These cookies do not track your activity across other websites.',
+                'privacy_security_title': 'Data Security',
+                'privacy_security_text': 'We implement industry-standard security measures to protect your information. All downloads are processed through secure connections.',
+                'privacy_changes_title': 'Changes to This Policy',
+                'privacy_changes_text': 'We may update this privacy policy from time to time. Any changes will be posted on this page with an updated revision date.'
             }
             
             # Türkçe çeviriler
@@ -175,17 +227,69 @@ Whether you\'re creating a content portfolio, saving inspiration for future proj
                 'footer_contact': 'İletişim',
                 'footer_copyright': '© 2024 InstaTest. Tüm hakları saklıdır.',
                 'footer_disclaimer': 'Bu araç Instagram ile bağlantılı değildir.',
-                # SEO Section
                 'seo_title': 'Instagram İndirici Nedir?',
-                'seo_content': '''Instagram İndirici, kullanıcıların Instagram\'dan içerik kaydetmesine ve indirmesine yardımcı olmak için tasarlanmış güçlü bir çevrimiçi araçtır. Sosyal medya günlük hayatımızda giderek daha merkezi bir rol oynarken, Instagram içeriklerini kaydetme ve arşivleme ihtiyacı da önemli ölçüde artmıştır. İster bir içerik üreticisi, ister sosyal medya yöneticisi, isterse sadece unutulmaz gönderileri saklamak isteyen biri olun, Instagram indirme aracımız güvenilir bir çözüm sunar.
+                'seo_content': 'Instagram İndirici, kullanıcıların Instagram\'dan içerik kaydetmesine ve indirmesine yardımcı olmak için tasarlanmış güçlü bir çevrimiçi araçtır...',
 
-Aracımız, fotoğraflar, videolar, hikayeler ve reels dahil olmak üzere çeşitli Instagram içerik türlerini destekler. Diğer birçok indiricinin aksine, hem kaliteye hem de kullanıcı gizliliğine öncelik veriyoruz. Tüm indirmeler orijinal içerik kalitesini korur ve kaydetmek istediğiniz medyanın mümkün olan en iyi versiyonunu almanızı sağlar.
+                # About page translations
+                'about_title': 'Hakkımızda',
+                'about_subtitle': 'Bizi Daha Yakından Tanıyın',
+                'about_story_title': 'Hikayemiz',
+                'about_story_p1': '2024 yılında kurulan InstaTest, Instagram içeriklerini güvenli ve kolay bir şekilde indirme ihtiyacından doğdu.',
+                'about_story_p2': 'Kullanıcı gizliliğini ve veri güvenliğini ön planda tutarak, yüksek kaliteli indirme deneyimi sunmayı hedefliyoruz.',
+                'about_story_p3': 'Her geçen gün daha fazla kullanıcıya hizmet vererek, sürekli kendimizi geliştiriyoruz.',
+                'about_mission_title': 'Misyonumuz',
+                'about_mission_text': 'Instagram içeriklerini en yüksek kalitede, güvenli ve hızlı bir şekilde indirme imkanı sunmak.',
+                'about_vision_title': 'Vizyonumuz',
+                'about_vision_text': 'Sosyal medya içerik indirme konusunda dünyanın en güvenilir ve tercih edilen platformu olmak.',
+                'about_values_title': 'Değerlerimiz',
+                'about_value1_title': 'Kullanıcı Odaklılık',
+                'about_value1_text': 'Kullanıcılarımızın ihtiyaçlarını ve gizliliğini her zaman ön planda tutuyoruz.',
+                'about_value2_title': 'Sürekli İyileştirme',
+                'about_value2_text': 'Hizmetlerimizi ve teknolojimizi sürekli geliştirerek en iyi deneyimi sunuyoruz.',
+                'about_value3_title': 'Güvenilirlik',
+                'about_value3_text': 'Güvenli ve kesintisiz hizmet sunarak kullanıcılarımızın güvenini kazanıyoruz.',
+                'about_stats_downloads': 'İndirme',
+                'about_stats_users': 'Aktif Kullanıcı',
+                'about_stats_uptime': 'Çalışma Süresi',
 
-Instagram indiricimizin en önemli avantajlarından biri basitliğidir. Herhangi bir teknik bilgiye veya ek yazılıma ihtiyacınız yok - sadece indirmek istediğiniz içeriğin URL\'sini yapıştırın, sistemimiz gerisini halleder. Bu, sosyal medya profesyonellerinden günlük Instagram kullanıcılarına kadar herkes için erişilebilir olmasını sağlar.
+                # Contact page translations
+                'contact_title': 'İletişim',
+                'contact_subtitle': 'Bizimle İletişime Geçin',
+                'contact_form_title': 'Mesaj Gönderin',
+                'contact_name': 'Adınız',
+                'contact_email': 'E-posta Adresiniz',
+                'contact_subject': 'Konu',
+                'contact_message': 'Mesajınız',
+                'contact_send': 'Gönder',
+                'contact_success': 'Mesajınız başarıyla gönderildi!',
+                'contact_error': 'Mesaj gönderilirken bir hata oluştu.',
+                'contact_info_title': 'İletişim Bilgileri',
+                'contact_email_title': 'E-posta',
+                'contact_phone_title': 'Telefon',
+                'contact_faq_title': 'Sık Sorulan Sorular',
+                'contact_faq1_q': 'Nasıl indirme yapabilirim?',
+                'contact_faq1_a': 'Instagram bağlantısını giriş alanına yapıştırıp İndir butonuna tıklamanız yeterli.',
+                'contact_faq2_q': 'Ücretli mi?',
+                'contact_faq2_a': 'Hayır, hizmetimiz tamamen ücretsizdir.',
+                'contact_faq3_q': 'Instagram hesabı gerekli mi?',
+                'contact_faq3_a': 'Hayır, indirme yapmak için Instagram hesabına ihtiyacınız yok.',
+                'contact_faq4_q': 'Güvenli mi?',
+                'contact_faq4_a': 'Evet, tüm işlemler güvenli ve anonim şekilde gerçekleştirilir.',
 
-Günümüzün dijital çağında gizlilik ve güvenliğin önemini de anlıyoruz. İndiricimiz, Instagram hesabınıza giriş yapmanızı gerektirmeden çalışır ve kişisel bilgilerinizin korunmasını sağlar. Ayrıca, indirme geçmişinizi veya kişisel verilerinizi saklamıyoruz.
-
-İster bir içerik portföyü oluşturuyor, ister gelecekteki projeler için ilham kaynağı arıyor, ister sadece değerli anıları saklamak istiyor olun, Instagram indiricimiz, Instagram içeriğini kaydetmek için hızlı, güvenilir ve güvenli bir yol sunar.'''
+                # Privacy Policy translations
+                'privacy_title': 'Gizlilik Politikası',
+                'privacy_subtitle': 'Verilerinizi nasıl işliyoruz',
+                'privacy_intro': 'InstaTest olarak gizliliğinizi ciddiye alıyoruz. Bu politika, kişisel bilgilerinizi nasıl topladığımızı, kullandığımızı ve koruduğumuzu açıklar.',
+                'privacy_collection_title': 'Topladığımız Bilgiler',
+                'privacy_collection_text': 'Sadece hizmetimizi sağlamak için gerekli olan bilgileri, örneğin indirmek için gönderdiğiniz Instagram bağlantılarını topluyoruz. Kişisel bilgilerinizi veya indirme geçmişinizi saklamıyoruz.',
+                'privacy_usage_title': 'Bilgilerinizi Nasıl Kullanıyoruz',
+                'privacy_usage_text': 'Sağladığınız bilgiler yalnızca indirme isteklerinizi işlemek için kullanılır. Bilgilerinizi üçüncü taraflarla paylaşmıyor veya pazarlama amaçlı kullanmıyoruz.',
+                'privacy_cookies_title': 'Çerezler ve İzleme',
+                'privacy_cookies_text': 'Hizmetimizin düzgün çalışmasını sağlamak için gerekli çerezleri kullanıyoruz. Bu çerezler, diğer web sitelerindeki etkinliğinizi takip etmez.',
+                'privacy_security_title': 'Veri Güvenliği',
+                'privacy_security_text': 'Bilgilerinizi korumak için endüstri standardı güvenlik önlemleri uyguluyoruz. Tüm indirmeler güvenli bağlantılar üzerinden işlenir.',
+                'privacy_changes_title': 'Bu Politikadaki Değişiklikler',
+                'privacy_changes_text': 'Bu gizlilik politikasını zaman zaman güncelleyebiliriz. Herhangi bir değişiklik, güncellenmiş revizyon tarihi ile birlikte bu sayfada yayınlanacaktır.'
             }
             
             # Çevirileri ekle

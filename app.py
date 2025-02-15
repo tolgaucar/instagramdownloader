@@ -1889,6 +1889,77 @@ async def update_password_endpoint(
         logger.error(f"Update password error: {str(e)}")
         raise HTTPException(status_code=500, detail="An error occurred while updating password")
 
+@app.get("/about", response_class=HTMLResponse)
+async def about_page(request: Request):
+    """About page route"""
+    translations = get_translations('en')  # Default to English
+    return templates.TemplateResponse("about.html", {
+        "request": request,
+        "translations": translations,
+        "current_lang": 'en',
+        "languages": get_languages()
+    })
+
+@app.get("/{lang_code}/about", response_class=HTMLResponse)
+async def about_page_with_lang(request: Request, lang_code: str):
+    """About page with language code"""
+    translations = get_translations(lang_code)
+    return templates.TemplateResponse("about.html", {
+        "request": request,
+        "translations": translations,
+        "current_lang": lang_code,
+        "languages": get_languages()
+    })
+
+@app.get("/contact", response_class=HTMLResponse)
+async def contact_page(request: Request):
+    """Contact page route"""
+    translations = get_translations('en')  # Default to English
+    return templates.TemplateResponse("contact.html", {
+        "request": request,
+        "translations": translations,
+        "current_lang": 'en',
+        "languages": get_languages()
+    })
+
+@app.get("/{lang_code}/contact", response_class=HTMLResponse)
+async def contact_page_with_lang(request: Request, lang_code: str):
+    """Contact page with language code"""
+    translations = get_translations(lang_code)
+    return templates.TemplateResponse("contact.html", {
+        "request": request,
+        "translations": translations,
+        "current_lang": lang_code,
+        "languages": get_languages()
+    })
+
+@app.post("/api/contact")
+async def handle_contact(request: Request):
+    """Handle contact form submissions"""
+    try:
+        data = await request.json()
+        # Burada form verilerini işleyebilirsiniz (örn: e-posta gönderme)
+        return {"success": True}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+@app.get("/privacy", response_class=HTMLResponse)
+async def privacy_page(request: Request):
+    """Privacy policy page without language code"""
+    return await privacy_page_with_lang(request, "en")
+
+@app.get("/{lang_code}/privacy", response_class=HTMLResponse)
+async def privacy_page_with_lang(request: Request, lang_code: str):
+    """Privacy policy page with language code"""
+    translations = get_translations(lang_code)
+    languages = get_languages()
+    return templates.TemplateResponse("privacy.html", {
+        "request": request,
+        "translations": translations,
+        "languages": languages,
+        "current_lang": lang_code
+    })
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000) 
