@@ -183,15 +183,15 @@ class CookieManager:
                     with open(cookie_path, 'r') as f:
                         cookie_data = json.load(f)
                         
-                    # Cookie sağlık durumunu kontrol et, yoksa oluştur
-                    health_key = self._get_cookie_health_key(cookie_id)
-                    if not self.redis_client.exists(health_key):
-                        self.redis_client.hset(health_key, mapping={
-                            'successes': '0',
-                            'challenges': '0',
-                            'last_success': '',
-                            'last_challenge': ''
-                        })
+                        # Cookie sağlık durumunu kontrol et, yoksa oluştur
+                        health_key = self._get_cookie_health_key(cookie_id)
+                        if not self.redis_client.exists(health_key):
+                            self.redis_client.hset(health_key, mapping={
+                                'successes': '0',
+                                'challenges': '0',
+                                'last_success': '',
+                                'last_challenge': ''
+                            })
                 except Exception as e:
                     logger.error(f"Error loading cookie {cookie_id}: {str(e)}")
                     continue
@@ -248,6 +248,7 @@ class CookieManager:
             'last_success': '',
             'last_challenge': ''
         }
+    
 
     def is_cookie_in_cooldown(self, cookie_id: str) -> bool:
         cooldown_key = self._get_cookie_cooldown_key(cookie_id)
@@ -560,9 +561,14 @@ class AdminLoginRateLimiter:
             self.redis.delete(attempt_key)
 
     def get_remaining_attempts(self, username: str, ip: str) -> int:
-        attempt_key = self._get_attempt_key(username, ip)
-        attempts = int(self.redis.get(attempt_key) or 0)
-        return self.max_attempts - attempts
+        """Kalan deneme sayısını döndür"""
+        try:
+            attempt_key = self._get_attempt_key(username, ip)
+            attempts = int(self.redis.get(attempt_key) or 0)
+            return max(0, self.max_attempts - attempts)
+        except Exception as e:
+            logger.error(f"Error getting remaining attempts: {str(e)}")
+            return 0
 
 # Rate limiter instance'ı oluştur
 admin_login_limiter = AdminLoginRateLimiter(redis_client)
@@ -1032,7 +1038,7 @@ async def combined_middleware(request: Request, call_next):
     
     # JSON formatında log
     logger.info(json.dumps(log_dict))
-    
+        
     return response
 
 @app.on_event("startup")
@@ -1247,7 +1253,8 @@ async def download_media_from_instagram(url: str, client_id: str) -> dict:
                 'timestamp': post.date_local.isoformat()
             }
 
-        return await download_attempt()
+        result = await download_attempt()
+        return result
 
     except instaloader.exceptions.ConnectionException as e:
         logger.error(f"Connection error: {str(e)}", extra=extra)

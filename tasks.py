@@ -6,9 +6,18 @@ import os
 from bs4 import BeautifulSoup
 import instaloader
 from typing import Optional, Dict, Any
+from redis_manager import RedisManager
+import logging
+import time
+from datetime import datetime, timedelta
+import aiohttp
+import asyncio
 
 # Celery instance
-celery = Celery('tasks', broker='pyamqp://guest@localhost//')
+celery = Celery('tasks', broker='redis://localhost:6379/0', backend='redis://localhost:6379/0')
+
+# Redis bağlantısı
+redis_manager = RedisManager()
 
 class InstagramDownloader:
     def __init__(self):
@@ -102,3 +111,138 @@ def process_download(url: str, media_type: str = "post") -> Dict[str, Any]:
     downloader = InstagramDownloader()
     result = downloader.download_media(url)
     return result 
+
+@celery.task
+def download_media(url: str, cookie_id: str = None):
+    """Medya indirme işlemini arka planda gerçekleştir"""
+    try:
+        # Cookie bilgisini al
+        if cookie_id:
+            cookie_key = f"cookie:{cookie_id}"
+            cookie_data = redis_manager.get(cookie_key)
+            if not cookie_data:
+                raise Exception("Cookie not found")
+        
+        # İndirme işlemini başlat
+        start_time = time.time()
+        
+        # Asenkron indirme işlemini senkron context'te çalıştır
+        loop = asyncio.get_event_loop()
+        result = loop.run_until_complete(download_media_async(url, cookie_data if cookie_id else None))
+        
+        # İşlem süresini hesapla
+        duration = time.time() - start_time
+        
+        # Başarılı indirme istatistiklerini güncelle
+        if cookie_id:
+            update_cookie_stats(cookie_id, True, duration)
+        
+        return result
+    except Exception as e:
+        logging.error(f"Download failed: {str(e)}")
+        if cookie_id:
+            update_cookie_stats(cookie_id, False, 0)
+        raise
+
+async def download_media_async(url: str, cookie_data: dict = None):
+    """Asenkron medya indirme işlemi"""
+    async with aiohttp.ClientSession() as session:
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+        }
+        
+        if cookie_data:
+            headers['Cookie'] = '; '.join([f"{k}={v}" for k, v in cookie_data.items()])
+        
+        async with session.get(url, headers=headers) as response:
+            if response.status != 200:
+                raise Exception(f"Download failed with status {response.status}")
+            
+            content = await response.read()
+            return content
+
+def update_cookie_stats(cookie_id: str, success: bool, duration: float):
+    """Cookie istatistiklerini güncelle"""
+    try:
+        stats_key = f"cookie_stats:{cookie_id}"
+        current_stats = redis_manager.get(stats_key) or {
+            'successes': 0,
+            'failures': 0,
+            'total_duration': 0,
+            'last_success': None,
+            'last_failure': None
+        }
+        
+        if success:
+            current_stats['successes'] += 1
+            current_stats['last_success'] = datetime.utcnow().isoformat()
+        else:
+            current_stats['failures'] += 1
+            current_stats['last_failure'] = datetime.utcnow().isoformat()
+        
+        current_stats['total_duration'] += duration
+        
+        # İstatistikleri 24 saat TTL ile kaydet
+        redis_manager.set(stats_key, current_stats, ttl=86400)
+    except Exception as e:
+        logging.error(f"Failed to update cookie stats: {str(e)}")
+
+@celery.task
+def cleanup_old_data():
+    """Eski verileri temizle"""
+    try:
+        # Eski cookie istatistiklerini temizle
+        redis_manager.cleanup_keys("cookie_stats:*", max_keys=1000)
+        
+        # Eski task kayıtlarını temizle
+        redis_manager.cleanup_keys("task:*", max_keys=1000)
+        
+        # Eski rate limit kayıtlarını temizle
+        redis_manager.cleanup_keys("rate_limit:*", max_keys=1000)
+    except Exception as e:
+        logging.error(f"Cleanup task failed: {str(e)}")
+
+@celery.task
+def monitor_system_health():
+    """Sistem sağlığını kontrol et"""
+    try:
+        import psutil
+        
+        # Sistem kaynak kullanımını kontrol et
+        cpu_percent = psutil.cpu_percent(interval=1)
+        memory = psutil.virtual_memory()
+        disk = psutil.disk_usage('/')
+        
+        health_data = {
+            'timestamp': datetime.utcnow().isoformat(),
+            'cpu_percent': cpu_percent,
+            'memory_percent': memory.percent,
+            'disk_percent': disk.percent,
+            'warning_level': 'normal'
+        }
+        
+        # Yüksek kaynak kullanımı varsa uyarı seviyesini güncelle
+        if cpu_percent > 80 or memory.percent > 80 or disk.percent > 80:
+            health_data['warning_level'] = 'high'
+        
+        # Sağlık verilerini Redis'e kaydet
+        redis_manager.set('system_health', health_data, ttl=300)  # 5 dakika TTL
+        
+        return health_data
+    except Exception as e:
+        logging.error(f"Health monitoring failed: {str(e)}")
+        return None
+
+# Celery beat schedule tanımlamaları
+celery.conf.beat_schedule = {
+    'cleanup-old-data': {
+        'task': 'tasks.cleanup_old_data',
+        'schedule': timedelta(hours=1),
+    },
+    'monitor-system-health': {
+        'task': 'tasks.monitor_system_health',
+        'schedule': timedelta(minutes=5),
+    },
+}
+
+celery.conf.timezone = 'UTC' 
