@@ -1085,9 +1085,17 @@ async def startup_event():
                 'input_placeholder': 'Insert Instagram link here',
                 'paste_button': 'Paste',
                 'download_button': 'Download',
+                'preview_button': 'Preview',
                 'loading_text': 'Processing...',
                 'success_text': 'Download completed!',
                 'error_text': 'An error occurred',
+                'format_video': 'Video',
+                'format_sound': 'Sound',
+                'download_video': 'Download Video',
+                'download_sound': 'Download Sound',
+                'preview_loading': 'Loading preview...',
+                'download_loading': 'Downloading...',
+                'converting_loading': 'Converting...',
                 'description': 'A powerful tool to download Instagram content with high quality and complete anonymity.',
                 'supported_urls_title': 'Supported URLs:',
                 'supported_urls_text': 'instagram.com/p/... (posts), instagram.com/reel/... (reels), instagram.com/stories/... (stories)',
@@ -1106,9 +1114,17 @@ async def startup_event():
                 'input_placeholder': 'Instagram linkini buraya yapıştırın',
                 'paste_button': 'Yapıştır',
                 'download_button': 'İndir',
+                'preview_button': 'Önizle',
                 'loading_text': 'İşleniyor...',
                 'success_text': 'İndirme tamamlandı!',
                 'error_text': 'Bir hata oluştu',
+                'format_video': 'Video',
+                'format_sound': 'Ses',
+                'download_video': 'Videoyu İndir',
+                'download_sound': 'Sesi İndir',
+                'preview_loading': 'Önizleme yükleniyor...',
+                'download_loading': 'İndiriliyor...',
+                'converting_loading': 'Dönüştürülüyor...',
                 'description': 'Instagram içeriklerini yüksek kalitede ve tam gizlilikle indirmenizi sağlayan güçlü bir araç.',
                 'supported_urls_title': 'Desteklenen URLler:',
                 'supported_urls_text': 'instagram.com/p/... (gönderiler), instagram.com/reel/... (reels), instagram.com/stories/... (hikayeler)',
@@ -1403,6 +1419,10 @@ def get_shortcode_from_url(url: str) -> str:
     # Debug log ekle
     logger.debug(f"Processing URL: {url}")
     
+    # Direkt medya URL'si kontrolü
+    if 'cdninstagram.com' in url or 'fbcdn.net' in url:
+        return None
+    
     # Story URL'si için özel kontrol
     story_match = re.search(r'instagram\.com/stories/([^/]+)/(\d+)', url)
     if story_match:
@@ -1465,8 +1485,29 @@ async def download_media(request: Request):
         if not media_url:
             raise HTTPException(status_code=400, detail='Media URL is required')
 
+        # Direkt medya URL'si kontrolü
+        if 'cdninstagram.com' in media_url or 'fbcdn.net' in media_url:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(media_url) as response:
+                    if response.status != 200:
+                        raise HTTPException(status_code=400, detail='Failed to download media')
+                    
+                    content_type = response.headers.get('content-type', '')
+                    extension = 'mp4' if 'video' in content_type else 'jpg'
+                    filename = f'instagram_media_{int(time.time())}.{extension}'
+                    
+                    content = await response.read()
+                    return StreamingResponse(
+                        io.BytesIO(content),
+                        media_type=content_type,
+                        headers={
+                            'Content-Disposition': f'attachment; filename="{filename}"',
+                            'Content-Type': content_type
+                        }
+                    )
+
         # Instagram URL kontrolü
-        if 'instagram.com' in media_url and not ('cdninstagram.com' in media_url or 'fbcdn.net' in media_url):
+        if 'instagram.com' in media_url:
             # Instagram API'sini kullan
             client_id = request.client.host
             result = await download_media_from_instagram(media_url, client_id)

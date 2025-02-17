@@ -706,6 +706,11 @@
 				errorDiv.classList.remove("hidden");
 			}
 
+			// Story indirme fonksiyonu
+			function downloadStory(url) {
+				window.location.href = `/api/download-media?url=${encodeURIComponent(url)}`;
+			}
+
 			// Dropdown menüyü aç/kapat
 			languageDropdown.addEventListener('click', () => {
 				languageMenu.classList.toggle('hidden');
@@ -724,6 +729,11 @@
 					languageMenu.classList.add('hidden');
 				}
 			});
+
+			// Buton metinlerini translations ile güncelle
+			downloadBtn.textContent = translations.download_button || 'İndir';
+			formatButtons.video.textContent = translations.format_video || 'Video';
+			formatButtons.sound.textContent = translations.format_sound || 'Sound';
 		</script>
 	</body>
 </html>
