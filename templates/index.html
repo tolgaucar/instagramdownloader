@@ -129,7 +129,7 @@
 									<!-- Format seçme bölümü -->
 									<div id="format-section" class="mt-4 hidden">
 										<div class="flex flex-col space-y-2">
-											<label class="text-sm font-medium text-gray-700">İndirme Formatı:</label>
+											<label class="text-sm font-medium text-gray-700">{{ translations.format_selection_label }}</label>
 											<div class="flex space-x-2">
 												<button id="format-video" class="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition duration-200">
 													Video
@@ -149,7 +149,7 @@
 						id="download-btn"
 						class="w-full bg-indigo-600 text-white py-3 px-6 rounded-lg hover:bg-indigo-700 transition duration-200 font-semibold"
 					>
-						{{ translations.download_button }}
+						{{ translations.preview_button_text }}
 					</button>
 
 					<p class="mt-2 text-sm text-gray-600">
@@ -318,8 +318,8 @@
 						<ul class="space-y-2">
 							<li><a href="/{{ current_lang }}/about" class="hover:text-white transition-colors duration-200">{{ translations.footer_about }}</a></li>
 							<li><a href="/{{ current_lang }}/contact" class="hover:text-white transition-colors duration-200">{{ translations.footer_contact }}</a></li>
-							<li><a href="#" class="hover:text-white transition-colors duration-200">{{ translations.footer_privacy }}</a></li>
-							<li><a href="#" class="hover:text-white transition-colors duration-200">{{ translations.footer_terms }}</a></li>
+							<li><a href="/{{ current_lang }}/privacy" class="hover:text-white transition-colors duration-200">{{ translations.footer_privacy }}</a></li>
+							<li><a href="/{{ current_lang }}/terms" class="hover:text-white transition-colors duration-200">{{ translations.footer_terms }}</a></li>
 						</ul>
 					</div>
 				</div>
@@ -568,14 +568,14 @@
 				if (!url) {
 					document.getElementById('preview-section').classList.add('hidden');
 					document.getElementById('format-section').classList.add('hidden');
-					downloadBtn.textContent = 'Önizle';
+					downloadBtn.textContent = translations.preview_button_text;
 					downloadBtn.disabled = true;
 					return;
 				}
 				
 				// URL varsa önizleme butonunu aktif et
 				downloadBtn.disabled = false;
-				downloadBtn.textContent = 'Önizle';
+				downloadBtn.textContent = translations.preview_button_text;
 				// Önizleme butonunun onclick fonksiyonunu sıfırla
 				downloadBtn.onclick = null;
 			});
@@ -731,7 +731,7 @@
 			});
 
 			// Buton metinlerini translations ile güncelle
-			downloadBtn.textContent = translations.download_button || 'İndir';
+			downloadBtn.textContent = translations.preview_button_text || 'İndir';
 			formatButtons.video.textContent = translations.format_video || 'Video';
 			formatButtons.sound.textContent = translations.format_sound || 'Sound';
 		</script>
