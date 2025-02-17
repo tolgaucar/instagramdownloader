@@ -1,3 +1,97 @@
+Last login: Sun Feb  9 15:54:29 on ttys008
+
+The default interactive shell is now zsh.
+To update your account to use zsh, please run `chsh -s /bin/zsh`.
+For more details, please visit https://support.apple.com/kb/HT208050.
+Tolga-MacBook-Air:~ tolgaucar$ celery -A tasks worker --loglevel=info
+-bash: celery: command not found
+Tolga-MacBook-Air:~ tolgaucar$ celery
+-bash: celery: command not found
+Tolga-MacBook-Air:~ tolgaucar$ celery
+-bash: celery: command not found
+Tolga-MacBook-Air:~ tolgaucar$ celery
+-bash: celery: command not found
+Tolga-MacBook-Air:~ tolgaucar$ celery -A tasks worker --loglevel=INFO
+-bash: celery: command not found
+Tolga-MacBook-Air:~ tolgaucar$ ssh root@91.132.49.144
+root@91.132.49.144's password: 
+Permission denied, please try again.
+root@91.132.49.144's password: 
+Permission denied, please try again.
+root@91.132.49.144's password: 
+Welcome to Ubuntu 22.04.1 LTS (GNU/Linux 5.15.0-43-generic x86_64)
+
+ * Documentation:  https://help.ubuntu.com
+ * Management:     https://landscape.canonical.com
+ * Support:        https://ubuntu.com/advantage
+
+  System information as of Mon Feb 17 06:34:32 AM UTC 2025
+
+  System load:  0.0                Processes:               203
+  Usage of /:   22.8% of 29.42GB   Users logged in:         1
+  Memory usage: 30%                IPv4 address for ens160: 91.132.49.144
+  Swap usage:   4%
+
+ * Strictly confined Kubernetes makes edge and IoT secure. Learn how MicroK8s
+   just raised the bar for easy, resilient and secure K8s cluster deployment.
+
+   https://ubuntu.com/engage/secure-kubernetes-at-the-edge
+
+117 updates can be applied immediately.
+To see these additional updates run: apt list --upgradable
+
+
+*** System restart required ***
+Last login: Sun Feb  9 14:54:48 2025 from 88.234.220.45
+root@91-132-49-144:~# ls
+instatest  snap
+root@91-132-49-144:~# cd instatest/
+root@91-132-49-144:~/instatest# ls
+app.py       docker-compose.yml  logs         README.md         templates
+backup       Dockerfile          models.py    requirements.txt  translations.db
+cookies      downloads           nohup.out    static
+database.db  LICENSE             __pycache__  tasks.py
+root@91-132-49-144:~/instatest# client_loop: send disconnect: Broken pipe
+Tolga-MacBook-Air:~ tolgaucar$ 
+Tolga-MacBook-Air:~ tolgaucar$ 
+Tolga-MacBook-Air:~ tolgaucar$ ssh root@91.132.49.144
+root@91.132.49.144's password: 
+Welcome to Ubuntu 22.04.1 LTS (GNU/Linux 5.15.0-43-generic x86_64)
+
+ * Documentation:  https://help.ubuntu.com
+ * Management:     https://landscape.canonical.com
+ * Support:        https://ubuntu.com/advantage
+
+  System information as of Mon Feb 17 08:26:34 PM UTC 2025
+
+  System load:  0.0205078125       Processes:               203
+  Usage of /:   22.9% of 29.42GB   Users logged in:         1
+  Memory usage: 30%                IPv4 address for ens160: 91.132.49.144
+  Swap usage:   4%
+
+ * Strictly confined Kubernetes makes edge and IoT secure. Learn how MicroK8s
+   just raised the bar for easy, resilient and secure K8s cluster deployment.
+
+   https://ubuntu.com/engage/secure-kubernetes-at-the-edge
+
+117 updates can be applied immediately.
+To see these additional updates run: apt list --upgradable
+
+New release '24.04.1 LTS' available.
+Run 'do-release-upgrade' to upgrade to it.
+
+
+*** System restart required ***
+Last login: Mon Feb 17 06:34:34 2025 from 89.65.224.190
+root@91-132-49-144:~# ls
+instatest  snap
+root@91-132-49-144:~# cd instatest/
+root@91-132-49-144:~/instatest# ls
+app.py       docker-compose.yml  logs         README.md         templates
+backup       Dockerfile          models.py    requirements.txt  translations.db
+cookies      downloads           nohup.out    static
+database.db  LICENSE             __pycache__  tasks.py
+root@91-132-49-144:~/instatest# cat app.py 
 from fastapi import FastAPI, HTTPException, Request, Form, Depends, Cookie
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -37,9 +131,6 @@ from models import (
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 import secrets
 import jwt
-import tempfile
-import subprocess
-import shutil
 
 # Logging konfigürasyonu
 def setup_logging():
@@ -185,7 +276,7 @@ class CookieManager:
                 try:
                     with open(cookie_path, 'r') as f:
                         cookie_data = json.load(f)
-                    
+                        
                     # Cookie sağlık durumunu kontrol et, yoksa oluştur
                     health_key = self._get_cookie_health_key(cookie_id)
                     if not self.redis_client.exists(health_key):
@@ -198,7 +289,7 @@ class CookieManager:
                 except Exception as e:
                     logger.error(f"Error loading cookie {cookie_id}: {str(e)}")
                     continue
-            
+                    
             logger.info("Cookies reloaded successfully")
         except Exception as e:
             logger.error(f"Error loading cookies: {str(e)}")
@@ -251,7 +342,6 @@ class CookieManager:
             'last_success': '',
             'last_challenge': ''
         }
-    
 
     def is_cookie_in_cooldown(self, cookie_id: str) -> bool:
         cooldown_key = self._get_cookie_cooldown_key(cookie_id)
@@ -564,14 +654,9 @@ class AdminLoginRateLimiter:
             self.redis.delete(attempt_key)
 
     def get_remaining_attempts(self, username: str, ip: str) -> int:
-        """Kalan deneme sayısını döndür"""
-        try:
-            attempt_key = self._get_attempt_key(username, ip)
-            attempts = int(self.redis.get(attempt_key) or 0)
-            return max(0, self.max_attempts - attempts)
-        except Exception as e:
-            logger.error(f"Error getting remaining attempts: {str(e)}")
-            return 0
+        attempt_key = self._get_attempt_key(username, ip)
+        attempts = int(self.redis.get(attempt_key) or 0)
+        return self.max_attempts - attempts
 
 # Rate limiter instance'ı oluştur
 admin_login_limiter = AdminLoginRateLimiter(redis_client)
@@ -1246,7 +1331,7 @@ async def download_media_from_instagram(url: str, client_id: str) -> dict:
             # Mark cookie as successful
             if current_cookie:
                 cookie_manager.mark_cookie_success({"id": current_cookie})
-
+            
             return {
                 'success': True,
                 'media_urls': media_urls,
@@ -1256,8 +1341,7 @@ async def download_media_from_instagram(url: str, client_id: str) -> dict:
                 'timestamp': post.date_local.isoformat()
             }
 
-        result = await download_attempt()
-        return result
+        return await download_attempt()
 
     except instaloader.exceptions.ConnectionException as e:
         logger.error(f"Connection error: {str(e)}", extra=extra)
@@ -1270,7 +1354,7 @@ async def download_media_from_instagram(url: str, client_id: str) -> dict:
         if current_cookie:
             cookie_manager.mark_cookie_challenge({"id": current_cookie})
         raise HTTPException(status_code=401, detail="Login required to access this content")
-
+            
     except Exception as e:
         logger.error(f"Error downloading media: {str(e)}", extra=extra)
         raise HTTPException(status_code=500, detail=f"Failed to download media: {str(e)}")
@@ -1287,7 +1371,7 @@ async def handle_download(request: Request, download_req: DownloadRequest):
         try:
             result = await download_media_from_instagram(download_req.url, client_id)
             task_manager.update_task(task_id, "completed", result)
-            
+        
             return {
                 "task_id": task_id,
                 "status": "SUCCESS",
@@ -1422,46 +1506,14 @@ def get_shortcode_from_url(url: str) -> str:
         if match := re.search(pattern, url):
             logger.debug(f"Matched pattern: {media_type} - {pattern}")
             return match.group(1)
-                
+    
     logger.warning(f"No pattern matched for URL: {url}")
     return None
-
-def convert_to_mp3(input_file: str) -> str:
-    """Video dosyasını MP3'e dönüştür"""
-    output_file = f"{input_file}.mp3"
-    try:
-        subprocess.run([
-            'ffmpeg', '-i', input_file,
-            '-vn', '-acodec', 'libmp3lame',
-            '-ab', '192k', '-ar', '44100',
-            output_file
-        ], check=True)
-        return output_file
-    except subprocess.CalledProcessError as e:
-        logger.error(f"MP3 conversion error: {str(e)}")
-        raise Exception("MP3 dönüşümü başarısız oldu")
-
-def convert_to_mp4(input_file: str) -> str:
-    """Video dosyasını MP4'e dönüştür"""
-    output_file = f"{input_file}.mp4"
-    try:
-        subprocess.run([
-            'ffmpeg', '-i', input_file,
-            '-c:v', 'libx264', '-preset', 'medium',
-            '-c:a', 'aac', '-b:a', '128k',
-            output_file
-        ], check=True)
-        return output_file
-    except subprocess.CalledProcessError as e:
-        logger.error(f"MP4 conversion error: {str(e)}")
-        raise Exception("MP4 dönüşümü başarısız oldu")
 
 @app.get('/api/download-media')
 async def download_media(request: Request):
     try:
         media_url = request.query_params.get('url')
-        format_type = request.query_params.get('format', 'original')
-        
         if not media_url:
             raise HTTPException(status_code=400, detail='Media URL is required')
 
@@ -1475,71 +1527,36 @@ async def download_media(request: Request):
                 raise HTTPException(status_code=400, detail=result.get('error', 'Failed to process Instagram URL'))
             
             media_url = result['media_urls'][0]['url']
-            is_video = result['media_urls'][0].get('type') == 'video'
 
-            # Eğer video değilse ve mp3 dönüşümü istenmişse hata ver
-            if not is_video and format_type == 'mp3':
-                raise HTTPException(status_code=400, detail='MP3 dönüşümü sadece video içeriği için geçerlidir')
+        # Medya dosyasını indir
+        async with aiohttp.ClientSession() as session:
+            async with session.get(media_url) as response:
+                if response.status != 200:
+                    raise HTTPException(status_code=400, detail='Failed to download media')
 
-            # MP3 dönüşümü için
-            if format_type == 'mp3':
-                temp_dir = tempfile.mkdtemp()
-                try:
-                    # Medya dosyasını indir
-                    async with aiohttp.ClientSession() as session:
-                        async with session.get(media_url) as response:
-                            if response.status != 200:
-                                raise HTTPException(status_code=400, detail='Failed to download media')
+                # Dosya adını belirle
+                content_type = response.headers.get('content-type', '')
+                ext = 'mp4' if 'video' in content_type else 'jpg'
+                filename = f'instagram_media_{int(time.time())}.{ext}'
 
-                            temp_file = os.path.join(temp_dir, f'temp.mp4')
-                            with open(temp_file, 'wb') as f:
-                                f.write(await response.read())
+                # Medyayı memory buffer'a al
+                buffer = io.BytesIO(await response.read())
+                buffer.seek(0)
 
-                            # MP3'e dönüştür
-                            try:
-                                final_file = convert_to_mp3(temp_file)
-                                content_type = 'audio/mpeg'
-
-                                # Dosyayı oku ve stream olarak dön
-                                with open(final_file, 'rb') as f:
-                                    content = f.read()
-
-                                return StreamingResponse(
-                                    io.BytesIO(content),
-                                    media_type=content_type,
-                                    headers={
-                                        'Content-Disposition': f'attachment; filename="instagram_sound_{int(time.time())}.mp3"',
-                                        'Content-Type': content_type
-                                    }
-                                )
-                            except Exception as e:
-                                logger.error(f"Format conversion error: {str(e)}")
-                                raise HTTPException(status_code=500, detail=f"Format dönüşümü başarısız: {str(e)}")
-                finally:
-                    # Geçici dosyaları temizle
-                    shutil.rmtree(temp_dir, ignore_errors=True)
-
-            # Video indirme için basit response
-            async with aiohttp.ClientSession() as session:
-                async with session.get(media_url) as response:
-                    if response.status != 200:
-                        raise HTTPException(status_code=400, detail='Failed to download media')
-                    
-                    content_type = response.headers.get('content-type', '')
-                    extension = 'mp4' if 'video' in content_type else 'jpg'
-                    filename = f'instagram_media_{int(time.time())}.{extension}'
-                    
-                    content = await response.read()
-                    return StreamingResponse(
-                        io.BytesIO(content),
-                        media_type=content_type,
-                        headers={
-                            'Content-Disposition': f'attachment; filename="{filename}"',
-                            'Content-Type': content_type
-                        }
-                    )
+                return StreamingResponse(
+                    buffer,
+                    media_type=response.headers.get('content-type', 'application/octet-stream'),
+                    headers={
+                        'Content-Disposition': f'attachment; filename="{filename}"',
+                        'Content-Type': content_type,
+                        'Cache-Control': 'no-cache, no-store, must-revalidate',
+                        'Pragma': 'no-cache',
+                        'Expires': '0'
+                    }
+                )
 
     except HTTPException as he:
+        logger.error(f"HTTP error in download_media: {str(he)}")
         raise he
     except Exception as e:
         logger.error(f"Media download error: {str(e)}")
@@ -1959,77 +1976,6 @@ async def update_password_endpoint(
         logger.error(f"Update password error: {str(e)}")
         raise HTTPException(status_code=500, detail="An error occurred while updating password")
 
-@app.get("/about", response_class=HTMLResponse)
-async def about_page(request: Request):
-    """About page route"""
-    translations = get_translations('en')  # Default to English
-    return templates.TemplateResponse("about.html", {
-        "request": request,
-        "translations": translations,
-        "current_lang": 'en',
-        "languages": get_languages()
-    })
-
-@app.get("/{lang_code}/about", response_class=HTMLResponse)
-async def about_page_with_lang(request: Request, lang_code: str):
-    """About page with language code"""
-    translations = get_translations(lang_code)
-    return templates.TemplateResponse("about.html", {
-        "request": request,
-        "translations": translations,
-        "current_lang": lang_code,
-        "languages": get_languages()
-    })
-
-@app.get("/contact", response_class=HTMLResponse)
-async def contact_page(request: Request):
-    """Contact page route"""
-    translations = get_translations('en')  # Default to English
-    return templates.TemplateResponse("contact.html", {
-        "request": request,
-        "translations": translations,
-        "current_lang": 'en',
-        "languages": get_languages()
-    })
-
-@app.get("/{lang_code}/contact", response_class=HTMLResponse)
-async def contact_page_with_lang(request: Request, lang_code: str):
-    """Contact page with language code"""
-    translations = get_translations(lang_code)
-    return templates.TemplateResponse("contact.html", {
-        "request": request,
-        "translations": translations,
-        "current_lang": lang_code,
-        "languages": get_languages()
-    })
-
-@app.post("/api/contact")
-async def handle_contact(request: Request):
-    """Handle contact form submissions"""
-    try:
-        data = await request.json()
-        # Burada form verilerini işleyebilirsiniz (örn: e-posta gönderme)
-        return {"success": True}
-    except Exception as e:
-        return {"success": False, "error": str(e)}
-
-@app.get("/privacy", response_class=HTMLResponse)
-async def privacy_page(request: Request):
-    """Privacy policy page without language code"""
-    return await privacy_page_with_lang(request, "en")
-
-@app.get("/{lang_code}/privacy", response_class=HTMLResponse)
-async def privacy_page_with_lang(request: Request, lang_code: str):
-    """Privacy policy page with language code"""
-    translations = get_translations(lang_code)
-    languages = get_languages()
-    return templates.TemplateResponse("privacy.html", {
-        "request": request,
-        "translations": translations,
-        "languages": languages,
-        "current_lang": lang_code
-    })
-
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000) 
+    uvicorn.run(app, host="0.0.0.0", port=8000) root@91-132-49-144:~/instatest# 

@@ -37,9 +37,6 @@ from models import (
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 import secrets
 import jwt
-import tempfile
-import subprocess
-import shutil
 
 # Logging konfigürasyonu
 def setup_logging():
@@ -185,20 +182,20 @@ class CookieManager:
                 try:
                     with open(cookie_path, 'r') as f:
                         cookie_data = json.load(f)
-                    
-                    # Cookie sağlık durumunu kontrol et, yoksa oluştur
-                    health_key = self._get_cookie_health_key(cookie_id)
-                    if not self.redis_client.exists(health_key):
-                        self.redis_client.hset(health_key, mapping={
-                            'successes': '0',
-                            'challenges': '0',
-                            'last_success': '',
-                            'last_challenge': ''
-                        })
+                        
+                        # Cookie sağlık durumunu kontrol et, yoksa oluştur
+                        health_key = self._get_cookie_health_key(cookie_id)
+                        if not self.redis_client.exists(health_key):
+                            self.redis_client.hset(health_key, mapping={
+                                'successes': '0',
+                                'challenges': '0',
+                                'last_success': '',
+                                'last_challenge': ''
+                            })
                 except Exception as e:
                     logger.error(f"Error loading cookie {cookie_id}: {str(e)}")
                     continue
-            
+                    
             logger.info("Cookies reloaded successfully")
         except Exception as e:
             logger.error(f"Error loading cookies: {str(e)}")
@@ -1041,7 +1038,7 @@ async def combined_middleware(request: Request, call_next):
     
     # JSON formatında log
     logger.info(json.dumps(log_dict))
-    
+        
     return response
 
 @app.on_event("startup")
@@ -1246,7 +1243,7 @@ async def download_media_from_instagram(url: str, client_id: str) -> dict:
             # Mark cookie as successful
             if current_cookie:
                 cookie_manager.mark_cookie_success({"id": current_cookie})
-
+            
             return {
                 'success': True,
                 'media_urls': media_urls,
@@ -1270,7 +1267,7 @@ async def download_media_from_instagram(url: str, client_id: str) -> dict:
         if current_cookie:
             cookie_manager.mark_cookie_challenge({"id": current_cookie})
         raise HTTPException(status_code=401, detail="Login required to access this content")
-
+            
     except Exception as e:
         logger.error(f"Error downloading media: {str(e)}", extra=extra)
         raise HTTPException(status_code=500, detail=f"Failed to download media: {str(e)}")
@@ -1287,7 +1284,7 @@ async def handle_download(request: Request, download_req: DownloadRequest):
         try:
             result = await download_media_from_instagram(download_req.url, client_id)
             task_manager.update_task(task_id, "completed", result)
-            
+        
             return {
                 "task_id": task_id,
                 "status": "SUCCESS",
@@ -1422,46 +1419,14 @@ def get_shortcode_from_url(url: str) -> str:
         if match := re.search(pattern, url):
             logger.debug(f"Matched pattern: {media_type} - {pattern}")
             return match.group(1)
-                
+    
     logger.warning(f"No pattern matched for URL: {url}")
     return None
-
-def convert_to_mp3(input_file: str) -> str:
-    """Video dosyasını MP3'e dönüştür"""
-    output_file = f"{input_file}.mp3"
-    try:
-        subprocess.run([
-            'ffmpeg', '-i', input_file,
-            '-vn', '-acodec', 'libmp3lame',
-            '-ab', '192k', '-ar', '44100',
-            output_file
-        ], check=True)
-        return output_file
-    except subprocess.CalledProcessError as e:
-        logger.error(f"MP3 conversion error: {str(e)}")
-        raise Exception("MP3 dönüşümü başarısız oldu")
-
-def convert_to_mp4(input_file: str) -> str:
-    """Video dosyasını MP4'e dönüştür"""
-    output_file = f"{input_file}.mp4"
-    try:
-        subprocess.run([
-            'ffmpeg', '-i', input_file,
-            '-c:v', 'libx264', '-preset', 'medium',
-            '-c:a', 'aac', '-b:a', '128k',
-            output_file
-        ], check=True)
-        return output_file
-    except subprocess.CalledProcessError as e:
-        logger.error(f"MP4 conversion error: {str(e)}")
-        raise Exception("MP4 dönüşümü başarısız oldu")
 
 @app.get('/api/download-media')
 async def download_media(request: Request):
     try:
         media_url = request.query_params.get('url')
-        format_type = request.query_params.get('format', 'original')
-        
         if not media_url:
             raise HTTPException(status_code=400, detail='Media URL is required')
 
@@ -1475,71 +1440,36 @@ async def download_media(request: Request):
                 raise HTTPException(status_code=400, detail=result.get('error', 'Failed to process Instagram URL'))
             
             media_url = result['media_urls'][0]['url']
-            is_video = result['media_urls'][0].get('type') == 'video'
 
-            # Eğer video değilse ve mp3 dönüşümü istenmişse hata ver
-            if not is_video and format_type == 'mp3':
-                raise HTTPException(status_code=400, detail='MP3 dönüşümü sadece video içeriği için geçerlidir')
+        # Medya dosyasını indir
+        async with aiohttp.ClientSession() as session:
+            async with session.get(media_url) as response:
+                if response.status != 200:
+                    raise HTTPException(status_code=400, detail='Failed to download media')
 
-            # MP3 dönüşümü için
-            if format_type == 'mp3':
-                temp_dir = tempfile.mkdtemp()
-                try:
-                    # Medya dosyasını indir
-                    async with aiohttp.ClientSession() as session:
-                        async with session.get(media_url) as response:
-                            if response.status != 200:
-                                raise HTTPException(status_code=400, detail='Failed to download media')
+                # Dosya adını belirle
+                content_type = response.headers.get('content-type', '')
+                ext = 'mp4' if 'video' in content_type else 'jpg'
+                filename = f'instagram_media_{int(time.time())}.{ext}'
 
-                            temp_file = os.path.join(temp_dir, f'temp.mp4')
-                            with open(temp_file, 'wb') as f:
-                                f.write(await response.read())
+                # Medyayı memory buffer'a al
+                buffer = io.BytesIO(await response.read())
+                buffer.seek(0)
 
-                            # MP3'e dönüştür
-                            try:
-                                final_file = convert_to_mp3(temp_file)
-                                content_type = 'audio/mpeg'
-
-                                # Dosyayı oku ve stream olarak dön
-                                with open(final_file, 'rb') as f:
-                                    content = f.read()
-
-                                return StreamingResponse(
-                                    io.BytesIO(content),
-                                    media_type=content_type,
-                                    headers={
-                                        'Content-Disposition': f'attachment; filename="instagram_sound_{int(time.time())}.mp3"',
-                                        'Content-Type': content_type
-                                    }
-                                )
-                            except Exception as e:
-                                logger.error(f"Format conversion error: {str(e)}")
-                                raise HTTPException(status_code=500, detail=f"Format dönüşümü başarısız: {str(e)}")
-                finally:
-                    # Geçici dosyaları temizle
-                    shutil.rmtree(temp_dir, ignore_errors=True)
-
-            # Video indirme için basit response
-            async with aiohttp.ClientSession() as session:
-                async with session.get(media_url) as response:
-                    if response.status != 200:
-                        raise HTTPException(status_code=400, detail='Failed to download media')
-                    
-                    content_type = response.headers.get('content-type', '')
-                    extension = 'mp4' if 'video' in content_type else 'jpg'
-                    filename = f'instagram_media_{int(time.time())}.{extension}'
-                    
-                    content = await response.read()
-                    return StreamingResponse(
-                        io.BytesIO(content),
-                        media_type=content_type,
-                        headers={
-                            'Content-Disposition': f'attachment; filename="{filename}"',
-                            'Content-Type': content_type
-                        }
-                    )
+                return StreamingResponse(
+                    buffer,
+                    media_type=response.headers.get('content-type', 'application/octet-stream'),
+                    headers={
+                        'Content-Disposition': f'attachment; filename="{filename}"',
+                        'Content-Type': content_type,
+                        'Cache-Control': 'no-cache, no-store, must-revalidate',
+                        'Pragma': 'no-cache',
+                        'Expires': '0'
+                    }
+                )
 
     except HTTPException as he:
+        logger.error(f"HTTP error in download_media: {str(he)}")
         raise he
     except Exception as e:
         logger.error(f"Media download error: {str(e)}")
@@ -1958,77 +1888,6 @@ async def update_password_endpoint(
     except Exception as e:
         logger.error(f"Update password error: {str(e)}")
         raise HTTPException(status_code=500, detail="An error occurred while updating password")
-
-@app.get("/about", response_class=HTMLResponse)
-async def about_page(request: Request):
-    """About page route"""
-    translations = get_translations('en')  # Default to English
-    return templates.TemplateResponse("about.html", {
-        "request": request,
-        "translations": translations,
-        "current_lang": 'en',
-        "languages": get_languages()
-    })
-
-@app.get("/{lang_code}/about", response_class=HTMLResponse)
-async def about_page_with_lang(request: Request, lang_code: str):
-    """About page with language code"""
-    translations = get_translations(lang_code)
-    return templates.TemplateResponse("about.html", {
-        "request": request,
-        "translations": translations,
-        "current_lang": lang_code,
-        "languages": get_languages()
-    })
-
-@app.get("/contact", response_class=HTMLResponse)
-async def contact_page(request: Request):
-    """Contact page route"""
-    translations = get_translations('en')  # Default to English
-    return templates.TemplateResponse("contact.html", {
-        "request": request,
-        "translations": translations,
-        "current_lang": 'en',
-        "languages": get_languages()
-    })
-
-@app.get("/{lang_code}/contact", response_class=HTMLResponse)
-async def contact_page_with_lang(request: Request, lang_code: str):
-    """Contact page with language code"""
-    translations = get_translations(lang_code)
-    return templates.TemplateResponse("contact.html", {
-        "request": request,
-        "translations": translations,
-        "current_lang": lang_code,
-        "languages": get_languages()
-    })
-
-@app.post("/api/contact")
-async def handle_contact(request: Request):
-    """Handle contact form submissions"""
-    try:
-        data = await request.json()
-        # Burada form verilerini işleyebilirsiniz (örn: e-posta gönderme)
-        return {"success": True}
-    except Exception as e:
-        return {"success": False, "error": str(e)}
-
-@app.get("/privacy", response_class=HTMLResponse)
-async def privacy_page(request: Request):
-    """Privacy policy page without language code"""
-    return await privacy_page_with_lang(request, "en")
-
-@app.get("/{lang_code}/privacy", response_class=HTMLResponse)
-async def privacy_page_with_lang(request: Request, lang_code: str):
-    """Privacy policy page with language code"""
-    translations = get_translations(lang_code)
-    languages = get_languages()
-    return templates.TemplateResponse("privacy.html", {
-        "request": request,
-        "translations": translations,
-        "languages": languages,
-        "current_lang": lang_code
-    })
 
 if __name__ == "__main__":
     import uvicorn
