@@ -1284,7 +1284,16 @@ async def download_media_from_instagram(url: str, client_id: str) -> dict:
                 
             # Cookie'yi yükle
             loader = loader_instance['loader']
-            loader.context.load_session_from_file(cookie_data.get('username', ''), cookie_data.get('filename', ''))
+            
+            # Cookie'leri direkt olarak session'a ekle
+            for key, value in cookie_data.items():
+                loader.context._session.cookies.set(
+                    key, value, domain='.instagram.com', path='/'
+                )
+            
+            # User ID'yi ayarla
+            if 'ds_user_id' in cookie_data:
+                loader.context.user_id = cookie_data['ds_user_id']
             
             try:
                 post = instaloader.Post.from_shortcode(loader.context, get_shortcode_from_url(url))
