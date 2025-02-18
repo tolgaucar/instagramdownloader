@@ -120,7 +120,9 @@ class InstaloaderPool:
         self.pool_size = pool_size
         self.current = 0
         self.lock = asyncio.Lock()
+        self.cookie_manager = CookieManager()
         
+        # Her instance için ayrı rate controller
         for _ in range(pool_size):
             loader = instaloader.Instaloader(
                 download_video_thumbnails=False,
@@ -128,36 +130,70 @@ class InstaloaderPool:
                 download_geotags=False,
                 download_comments=False,
                 post_metadata_txt_pattern="",
-                max_connection_attempts=3,
+                max_connection_attempts=1,  # Tek deneme hakkı
                 filename_pattern="{shortcode}",
                 quiet=True,
-                sleep=True  # Rate limiting'i aç
+                sleep=True  # Rate limiting aktif
             )
-            self.pool.append(loader)
-            
-    def load_cookies_to_loader(self, loader, cookies):
-        """Cookie'leri Instaloader instance'ına yükle"""
-        # Mevcut cookie'leri temizle
-        loader.context._session.cookies.clear()
-        
-        # Yeni cookie'leri ekle
-        for key, value in cookies.items():
-            loader.context._session.cookies.set(
-                key,
-                value,
-                domain='.instagram.com',
-                path='/'
-            )
-        
-        # Kullanıcı ID'sini ayarla
-        if 'ds_user_id' in cookies:
-            loader.context.user_id = cookies['ds_user_id']
+            self.pool.append({
+                'loader': loader,
+                'cookie_id': None,
+                'in_use': False
+            })
             
     async def get_loader(self):
         async with self.lock:
-            loader = self.pool[self.current]
-            self.current = (self.current + 1) % self.pool_size
-            return loader
+            # Aktif ve cooldown'da olmayan bir cookie bul
+            available_cookies = [c for c in self.cookie_manager.get_cookies() 
+                               if not c['cooldown'] and not c['in_use']]
+            
+            if not available_cookies:
+                raise HTTPException(status_code=503, 
+                                  detail="No available cookies")
+            
+            # Random bir cookie seç
+            cookie_data = random.choice(available_cookies)
+            cookie_id = cookie_data['id']
+            
+            # Boşta olan bir loader bul
+            for instance in self.pool:
+                if not instance['in_use']:
+                    try:
+                        # Cookie'yi yükle
+                        cookie_file = os.path.join(self.cookie_manager.cookies_dir, 
+                                                 f"{cookie_id}.json")
+                        with open(cookie_file, 'r') as f:
+                            cookies = json.load(f)
+                        
+                        instance['loader'].context._session.cookies.clear()
+                        for key, value in cookies.items():
+                            instance['loader'].context._session.cookies.set(
+                                key, value, domain='.instagram.com', path='/'
+                            )
+                        
+                        if 'ds_user_id' in cookies:
+                            instance['loader'].context.user_id = cookies['ds_user_id']
+                        
+                        instance['cookie_id'] = cookie_id
+                        instance['in_use'] = True
+                        
+                        return instance
+                        
+                    except Exception as e:
+                        logger.error(f"Error loading cookie {cookie_id}: {str(e)}")
+                        continue
+            
+            raise HTTPException(status_code=503, 
+                              detail="No available loaders")
+    
+    async def release_loader(self, instance, success: bool):
+        async with self.lock:
+            if not success:
+                # Başarısız işlemde cookie'yi cooldown'a al
+                await self.cookie_manager.set_cooldown(instance['cookie_id'])
+            
+            instance['in_use'] = False
+            instance['cookie_id'] = None
 
 class CookieManager:
     def __init__(self):
@@ -172,6 +208,52 @@ class CookieManager:
         
         if not os.path.exists(self.cookies_dir):
             os.makedirs(self.cookies_dir)
+
+    def get_cookies(self) -> list:
+        """Kullanılabilir cookie'leri getir"""
+        cookies = []
+        try:
+            cookie_files = [f for f in os.listdir(self.cookies_dir) 
+                          if f.endswith('.json')]
+            
+            for cookie_file in cookie_files:
+                cookie_id = cookie_file.replace('.json', '')
+                cooldown = self.is_cookie_in_cooldown(cookie_id)
+                in_use = self.is_cookie_in_use(cookie_id)
+                
+                cookies.append({
+                    'id': cookie_id,
+                    'cooldown': cooldown,
+                    'in_use': in_use
+                })
+            
+            return cookies
+        except Exception as e:
+            logger.error(f"Error getting cookies: {str(e)}")
+            return []
+
+    def is_cookie_in_cooldown(self, cookie_id: str) -> bool:
+        """Cookie'nin cooldown durumunu kontrol et"""
+        cooldown_key = f"cookie:{cookie_id}:cooldown"
+        return bool(self.redis_client.exists(cooldown_key))
+
+    def is_cookie_in_use(self, cookie_id: str) -> bool:
+        """Cookie'nin kullanımda olup olmadığını kontrol et"""
+        in_use_key = f"cookie:{cookie_id}:in_use"
+        return bool(self.redis_client.exists(in_use_key))
+
+    async def set_cooldown(self, cookie_id: str):
+        """Cookie'yi cooldown'a al"""
+        cooldown_key = f"cookie:{cookie_id}:cooldown"
+        cooldown_time = 60 * 30  # 30 dakika cooldown
+        
+        self.redis_client.setex(
+            cooldown_key,
+            cooldown_time,
+            "1"
+        )
+        
+        logger.warning(f"Cookie {cookie_id} set to cooldown for {cooldown_time} seconds")
 
     def load_cookies(self):
         """Tüm cookie'leri yeniden yükle"""
@@ -208,30 +290,6 @@ class CookieManager:
     def cookies(self) -> list:
         """Tüm cookie'leri ve durumlarını getir"""
         return self.get_cookies()
-
-    def get_cookies(self) -> list:
-        """Tüm cookie'leri ve durumlarını getir"""
-        cookies = []
-        try:
-            cookie_files = [f for f in os.listdir(self.cookies_dir) if f.endswith('.json')]
-            
-            for cookie_file in cookie_files:
-                cookie_id = cookie_file.replace('.json', '')
-                
-                # Cookie durumunu kontrol et
-                cooldown = self.is_cookie_in_cooldown(cookie_id)
-                health = self.get_cookie_health(cookie_id)
-                
-                cookies.append({
-                    'id': cookie_id,
-                    'cooldown': cooldown,
-                    'health': health
-                })
-            
-            return cookies
-        except Exception as e:
-            logger.error(f"Error getting cookies: {str(e)}")
-            return []
 
     def _get_cookie_health_key(self, cookie_id: str) -> str:
         return f"cookie:{cookie_id}:health"
@@ -487,14 +545,11 @@ cookie_manager = CookieManager()
 # Instaloader pool'unu oluştur ve cookie'leri yükle
 loader_pool = InstaloaderPool()
 
-# İlk cookie'yi yükle
+# İlk cookie yükleme işlemini kaldır çünkü artık get_loader() metodu bunu otomatik yapıyor
 try:
-    initial_cookies = cookie_manager.get_next_cookie()
-    for loader in loader_pool.pool:
-        loader_pool.load_cookies_to_loader(loader, initial_cookies)
-    logger.info("Initial cookies loaded successfully")
+    logger.info("Instaloader pool initialized successfully")
 except Exception as e:
-    logger.error(f"Initial cookie loading failed: {str(e)}")
+    logger.error(f"Instaloader pool initialization failed: {str(e)}")
 
 # Periyodik temizlik işlemi
 async def periodic_cleanup():
@@ -1094,8 +1149,10 @@ async def startup_event():
                 'download_video': 'Download Video',
                 'download_sound': 'Download Sound',
                 'preview_loading': 'Loading preview...',
-                'download_loading': 'Downloading...',
+                'download_loading': 'Searching...',
                 'converting_loading': 'Converting...',
+                'new_download': 'New Download',
+                'download_starting': 'Starting download...',
                 'description': 'A powerful tool to download Instagram content with high quality and complete anonymity.',
                 'supported_urls_title': 'Supported URLs:',
                 'supported_urls_text': 'instagram.com/p/... (posts), instagram.com/reel/... (reels), instagram.com/stories/... (stories)',
@@ -1123,8 +1180,10 @@ async def startup_event():
                 'download_video': 'Videoyu İndir',
                 'download_sound': 'Sesi İndir',
                 'preview_loading': 'Önizleme yükleniyor...',
-                'download_loading': 'İndiriliyor...',
+                'download_loading': 'Aranıyor...',
                 'converting_loading': 'Dönüştürülüyor...',
+                'new_download': 'Yeni İndirme',
+                'download_starting': 'İndirme başlatılıyor...',
                 'description': 'Instagram içeriklerini yüksek kalitede ve tam gizlilikle indirmenizi sağlayan güçlü bir araç.',
                 'supported_urls_title': 'Desteklenen URLler:',
                 'supported_urls_text': 'instagram.com/p/... (gönderiler), instagram.com/reel/... (reels), instagram.com/stories/... (hikayeler)',
@@ -1196,10 +1255,10 @@ async def retry_with_backoff(func, max_retries=5, initial_delay=10):
             if any(msg in error_msg for msg in ["unauthorized", "please wait", "failed", "not found"]):
                 # Yeni cookie dene
                 try:
-                    new_cookies = cookie_manager.get_next_cookie()
-                    loader = await loader_pool.get_loader()
-                    loader_pool.load_cookies_to_loader(loader, new_cookies)
-                    logger.info(f"Yeni cookie yüklendi: {loader.context.user_id}")
+                    # Yeni cookie denemesi için bekle
+                    delay = initial_delay * (2 ** attempt) + random.uniform(1, 5)
+                    logger.warning(f"Retry attempt {attempt + 1}/{max_retries}, waiting {delay:.2f} seconds...")
+                    await asyncio.sleep(delay)
                 except Exception as cookie_error:
                     logger.error(f"Cookie değiştirme hatası: {str(cookie_error)}")
             
@@ -1217,10 +1276,12 @@ async def download_media_from_instagram(url: str, client_id: str) -> dict:
     logger.info(f"Download request received", extra=extra)
     
     current_cookie = None
+    loader_instance = None
     try:
         # Get a loader from the pool
-        loader = await loader_pool.get_loader()
-        current_cookie = loader.context.username
+        loader_instance = await loader_pool.get_loader()
+        loader = loader_instance['loader']
+        current_cookie = loader_instance['cookie_id']
         
         # Get the shortcode from the URL
         shortcode = get_shortcode_from_url(url)
@@ -1290,6 +1351,10 @@ async def download_media_from_instagram(url: str, client_id: str) -> dict:
     except Exception as e:
         logger.error(f"Error downloading media: {str(e)}", extra=extra)
         raise HTTPException(status_code=500, detail=f"Failed to download media: {str(e)}")
+    
+    finally:
+        if loader_instance:
+            await loader_pool.release_loader(loader_instance, success=False)
 
 @app.post("/api/download")
 async def handle_download(request: Request, download_req: DownloadRequest):
@@ -1885,8 +1950,9 @@ async def get_preview(request: Request):
 
                 used_cookies.add(cookie_id)
                 
-                loader = await loader_pool.get_loader()
-                loader_pool.load_cookies_to_loader(loader, new_cookies)
+                # Get loader and load cookie
+                loader_instance = await loader_pool.get_loader()
+                loader = loader_instance['loader']
 
                 # Add small delay between attempts
                 if attempt > 0:

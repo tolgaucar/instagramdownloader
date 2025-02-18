@@ -145,6 +145,32 @@
 						</div>
 					</div>
 
+					<div id="downloadSection" class="hidden">
+						<div class="flex flex-col items-center space-y-4">
+							<div id="downloadButtons" class="flex flex-col md:flex-row space-y-2 md:space-y-0 md:space-x-4">
+								<button id="downloadVideoBtn" class="bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-4 rounded transition duration-300">
+									{{ translations.get('download_video', 'Download Video') }}
+								</button>
+								<button id="downloadSoundBtn" class="bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-4 rounded transition duration-300">
+									{{ translations.get('download_sound', 'Download Sound') }}
+								</button>
+							</div>
+							<div id="downloadingState" class="hidden text-center">
+								<div class="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500 mx-auto mb-2"></div>
+								<p id="downloadingText" class="text-gray-600">{{ translations.get('download_loading', 'Downloading...') }}</p>
+							</div>
+							<div id="downloadCompleteState" class="hidden text-center">
+								<svg class="w-8 h-8 text-green-500 mx-auto mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+								</svg>
+								<p class="text-gray-600 mb-4">{{ translations.get('success_text', 'Download completed!') }}</p>
+								<button id="newDownloadBtn" class="bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-4 rounded transition duration-300">
+									{{ translations.get('new_download', 'New Download') }}
+								</button>
+							</div>
+						</div>
+					</div>
+
 					<button
 						id="download-btn"
 						class="w-full bg-indigo-600 text-white py-3 px-6 rounded-lg hover:bg-indigo-700 transition duration-200 font-semibold"
@@ -331,6 +357,18 @@
 		</footer>
 
 		<script>
+			// Jinja'dan gelen çevirileri JavaScript'e aktar
+			const translations = {
+				preview_button_text: "{{ translations.preview_button_text }}",
+				format_video: "{{ translations.get('format_video', 'Video') }}",
+				format_sound: "{{ translations.get('format_sound', 'Sound') }}",
+				download_loading: "{{ translations.get('download_loading', 'Downloading...') }}",
+				converting_loading: "{{ translations.get('converting_loading', 'Converting...') }}",
+				error_text: "{{ translations.get('error_text', 'An error occurred') }}",
+				new_download: "{{ translations.get('new_download', 'New Download') }}",
+				download_starting: "{{ translations.get('download_starting', 'Starting download...') }}"
+			};
+
 			const downloadBtn = document.getElementById("download-btn");
 			const urlInput = document.getElementById("instagram-url");
 			const statusDiv = document.getElementById("status");
@@ -343,6 +381,8 @@
 			const languageDropdown = document.getElementById('language-dropdown');
 			const languageMenu = document.getElementById('language-menu');
 			
+			let lastUsedUrl = ''; // URL'yi saklamak için global değişken
+
 			function extractUsername(url) {
 				if (!url) return null;
 				
@@ -435,6 +475,32 @@
 				}
 			}
 
+			// UI kilitleme fonksiyonlarını güncelle
+			function lockUI() {
+				urlInput.disabled = true;
+				downloadBtn.disabled = true;
+				
+				// URL'yi sakla ama input'u temizleme
+				lastUsedUrl = urlInput.value;
+				
+				// Sound butonunu kilitle
+				const downloadSoundBtn = getElement('downloadSoundBtn');
+				if (downloadSoundBtn) {
+					downloadSoundBtn.disabled = true;
+				}
+			}
+
+			function unlockUI() {
+				urlInput.disabled = false;
+				downloadBtn.disabled = false;
+				
+				// Sound butonunun kilidini aç
+				const downloadSoundBtn = getElement('downloadSoundBtn');
+				if (downloadSoundBtn) {
+					downloadSoundBtn.disabled = false;
+				}
+			}
+
 			// Download butonunun click event'ini güncelle
 			downloadBtn.addEventListener("click", async () => {
 				const url = urlInput.value.trim();
@@ -446,18 +512,32 @@
 
 				try {
 					if (!document.getElementById('preview-section').classList.contains('hidden')) {
-						// Önizleme zaten gösteriliyorsa, indirme işlemini başlat
-						showLoading('İndiriliyor...');
+						// İndirme başlatılıyor, UI'ı kilitle
+						const downloadSoundBtn = getElement('downloadSoundBtn');
+						if (downloadSoundBtn) {
+							downloadSoundBtn.disabled = true;
+						}
+						
+						// İndirme başlatılıyor mesajını göster
+						showLoading(translations.download_starting);
+						
+						// İndirme butonunu "Yeni İndirme" butonuna dönüştür
+						downloadBtn.textContent = translations.new_download;
+						downloadBtn.onclick = () => {
+							window.location.reload();
+							return false;
+						};
+						
 						const finalFormat = selectedFormat;
-						const downloadUrl = `/api/download-media?url=${encodeURIComponent(url)}&format=${finalFormat}`;
+						const downloadUrl = `/api/download-media?url=${encodeURIComponent(lastUsedUrl)}&format=${finalFormat}`;
 						
 						if (finalFormat === 'video') {
-							// Video indirme için direkt yönlendirme
+							// Video indirme başlatılmadan önce kısa bir gecikme ekle
+							await new Promise(resolve => setTimeout(resolve, 1500));
 							window.location.href = downloadUrl;
 						} else {
-							// MP3 dönüşümü için
 							try {
-								showLoading('Ses Dönüştürülüyor...');
+								showLoading(translations.converting_loading);
 								const response = await fetch(downloadUrl);
 								if (!response.ok) throw new Error('İndirme başarısız');
 								
@@ -471,15 +551,18 @@
 								window.URL.revokeObjectURL(blobUrl);
 								document.body.removeChild(a);
 							} catch (error) {
-								showError(error.message || 'İndirme başarısız');
+								showError(error.message || translations.error_text);
+								if (downloadSoundBtn) {
+									downloadSoundBtn.disabled = false;
+								}
 							}
 						}
-						hideLoading();
 						return;
 					}
 
 					// Önizleme gösterilmemişse, önizlemeyi göster
-					showLoading('Yükleniyor...');
+					showLoading(translations.download_loading);
+					lastUsedUrl = url; // URL'yi sakla
 					
 					if (url.includes('/stories/')) {
 						const username = extractUsername(url);
@@ -507,38 +590,6 @@
 							const preview = await getPreview(url);
 							// Önizleme başarılı olduktan sonra indirme butonunu aktif et
 							downloadBtn.textContent = 'İndir';
-							downloadBtn.onclick = async () => {
-								try {
-									showLoading('İndiriliyor...');
-									// İndirme URL'ini oluştur
-									const downloadUrl = `/api/download-media?url=${encodeURIComponent(url)}&format=${selectedFormat}`;
-									
-									if (selectedFormat === 'video') {
-										// Orijinal format için direkt indirme
-										window.location.href = downloadUrl;
-									} else {
-										// Dönüşüm gereken formatlar için progress göster
-										showLoading('Dönüştürülüyor...');
-										const response = await fetch(downloadUrl);
-										if (!response.ok) throw new Error('İndirme başarısız');
-										
-										// Blob olarak al ve indir
-										const blob = await response.blob();
-										const blobUrl = window.URL.createObjectURL(blob);
-										const a = document.createElement('a');
-										a.href = blobUrl;
-										a.download = `instagram_media_${Date.now()}.${selectedFormat}`;
-										document.body.appendChild(a);
-										a.click();
-										window.URL.revokeObjectURL(blobUrl);
-										document.body.removeChild(a);
-									}
-								} catch (error) {
-									showError(error.message || 'İndirme başarısız');
-								} finally {
-									hideLoading();
-								}
-							};
 						} catch (previewError) {
 							console.error('Preview error:', previewError);
 							showError(previewError.response?.data?.detail || "Önizleme alınamadı");
@@ -546,8 +597,14 @@
 					}
 				} catch (error) {
 					console.error('Error:', error);
-					showError(error.response?.data?.detail || "Bir hata oluştu");
+					showError(error.response?.data?.detail || translations.error_text);
 				} finally {
+					if (!document.getElementById('preview-section').classList.contains('hidden')) {
+						// Eğer önizleme gösteriliyorsa UI'ı kilitli tut
+						lockUI();
+					} else {
+						unlockUI();
+					}
 					hideLoading();
 				}
 			});
@@ -633,6 +690,22 @@
 				resultDiv.classList.add('hidden');
 				errorDiv.classList.add('hidden');
 				downloadBtn.disabled = true;
+				
+				// Format butonlarını devre dışı bırak eğer indirme başlıyorsa
+				if (message === translations.download_starting) {
+					const formatVideoBtn = document.getElementById('format-video');
+					const formatSoundBtn = document.getElementById('format-sound');
+					if (formatVideoBtn) formatVideoBtn.disabled = true;
+					if (formatSoundBtn) formatSoundBtn.disabled = true;
+				}
+				
+				// Status div içeriğini güncelle
+				statusDiv.innerHTML = `
+					<div class="flex items-center justify-center space-x-3 bg-indigo-50 p-4 rounded-lg">
+						<div class="animate-spin rounded-full h-5 w-5 border-b-2 border-indigo-600"></div>
+						<p class="text-indigo-600 font-medium">${message}</p>
+					</div>
+				`;
 			}
 
 			function hideLoading() {
@@ -734,6 +807,139 @@
 			downloadBtn.textContent = translations.preview_button_text || 'İndir';
 			formatButtons.video.textContent = translations.format_video || 'Video';
 			formatButtons.sound.textContent = translations.format_sound || 'Sound';
+
+			let isDownloading = false;
+
+			// Element kontrolü yapan yardımcı fonksiyon
+			function getElement(id) {
+				const element = document.getElementById(id);
+				if (!element) {
+					console.warn(`Element with id '${id}' not found`);
+				}
+				return element;
+			}
+
+			function resetUI() {
+				const urlInput = getElement('instagram-url');
+				const previewSection = getElement('preview-section');
+				const downloadSection = getElement('downloadSection');
+				const downloadingState = getElement('downloadingState');
+				const downloadCompleteState = getElement('downloadCompleteState');
+				const downloadButtons = getElement('downloadButtons');
+
+				if (urlInput) urlInput.value = '';
+				if (previewSection) previewSection.classList.add('hidden');
+				if (downloadSection) downloadSection.classList.add('hidden');
+				if (downloadingState) downloadingState.classList.add('hidden');
+				if (downloadCompleteState) downloadCompleteState.classList.add('hidden');
+				if (downloadButtons) downloadButtons.classList.remove('hidden');
+
+				isDownloading = false;
+			}
+
+			function startDownload() {
+				if (isDownloading) return;
+				
+				isDownloading = true;
+				const urlInput = getElement('instagram-url');
+				const downloadButtons = getElement('downloadButtons');
+				const downloadingState = getElement('downloadingState');
+				const downloadSoundBtn = getElement('downloadSoundBtn');
+
+				if (urlInput) urlInput.disabled = true;
+				if (downloadButtons) downloadButtons.classList.add('hidden');
+				if (downloadingState) downloadingState.classList.remove('hidden');
+				if (downloadSoundBtn) downloadSoundBtn.disabled = true;
+			}
+
+			function completeDownload() {
+				const downloadingState = getElement('downloadingState');
+				const downloadCompleteState = getElement('downloadCompleteState');
+
+				if (downloadingState) downloadingState.classList.add('hidden');
+				if (downloadCompleteState) downloadCompleteState.classList.remove('hidden');
+			}
+
+			// Event listener'ları güvenli bir şekilde ekle
+			const newDownloadBtn = getElement('newDownloadBtn');
+			if (newDownloadBtn) {
+				newDownloadBtn.addEventListener('click', function() {
+					resetUI();
+				});
+			}
+
+			const downloadVideoBtn = getElement('downloadVideoBtn');
+			if (downloadVideoBtn) {
+				downloadVideoBtn.addEventListener('click', async function() {
+					if (isDownloading) return;
+					
+					startDownload();
+					try {
+						const urlInput = getElement('instagram-url');
+						if (!urlInput) throw new Error('URL input not found');
+
+						const url = urlInput.value;
+						const response = await fetch(`/api/download-media?url=${encodeURIComponent(url)}&format=video`);
+						if (response.ok) {
+							const blob = await response.blob();
+							const downloadUrl = window.URL.createObjectURL(blob);
+							const a = document.createElement('a');
+							a.href = downloadUrl;
+							a.download = response.headers.get('content-disposition')?.split('filename=')[1]?.replace(/"/g, '') || 'instagram_video.mp4';
+							document.body.appendChild(a);
+							a.click();
+							document.body.removeChild(a);
+							window.URL.revokeObjectURL(downloadUrl);
+							completeDownload();
+						} else {
+							throw new Error('Download failed');
+						}
+					} catch (error) {
+						console.error('Download error:', error);
+						showError(translations.error_text);
+						resetUI();
+					}
+				});
+			}
+
+			const downloadSoundBtn = getElement('downloadSoundBtn');
+			if (downloadSoundBtn) {
+				downloadSoundBtn.addEventListener('click', async function() {
+					if (isDownloading) return;
+					
+					startDownload();
+					const downloadingText = getElement('downloadingText');
+					if (downloadingText) {
+						downloadingText.textContent = translations.converting_loading;
+					}
+					
+					try {
+						const urlInput = getElement('instagram-url');
+						if (!urlInput) throw new Error('URL input not found');
+
+						const url = urlInput.value;
+						const response = await fetch(`/api/download-media?url=${encodeURIComponent(url)}&format=mp3`);
+						if (response.ok) {
+							const blob = await response.blob();
+							const downloadUrl = window.URL.createObjectURL(blob);
+							const a = document.createElement('a');
+							a.href = downloadUrl;
+							a.download = response.headers.get('content-disposition')?.split('filename=')[1]?.replace(/"/g, '') || 'instagram_sound.mp3';
+							document.body.appendChild(a);
+							a.click();
+							document.body.removeChild(a);
+							window.URL.revokeObjectURL(downloadUrl);
+							completeDownload();
+						} else {
+							throw new Error('Download failed');
+						}
+					} catch (error) {
+						console.error('Download error:', error);
+						showError(translations.error_text);
+						resetUI();
+					}
+				});
+			}
 		</script>
 	</body>
 </html>
