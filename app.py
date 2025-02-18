@@ -1268,93 +1268,62 @@ async def retry_with_backoff(func, max_retries=5, initial_delay=10):
             await asyncio.sleep(delay)
 
 async def download_media_from_instagram(url: str, client_id: str) -> dict:
-    """Instagram'dan medya URL'lerini al"""
-    extra = {
-        'client_ip': client_id,
-        'url': url
-    }
-    logger.info(f"Download request received", extra=extra)
+    cookie_manager = CookieManager()
+    result = None
+    error = None
     
-    current_cookie = None
-    loader_instance = None
-    try:
-        # Get a loader from the pool
-        loader_instance = await loader_pool.get_loader()
-        loader = loader_instance['loader']
-        current_cookie = loader_instance['cookie_id']
-        
-        # Get the shortcode from the URL
-        shortcode = get_shortcode_from_url(url)
-        if not shortcode:
-            raise ValueError("Invalid Instagram URL")
-        
-        async def download_attempt():
-            post = None
-            try:
-                # Post.from_shortcode'u sync olarak çağır
-                def get_post():
-                    return instaloader.Post.from_shortcode(loader.context, shortcode)
+    while True:  # Cookie rotasyonu için döngü
+        cookie_data = cookie_manager.get_next_cookie()
+        if not cookie_data:
+            raise HTTPException(status_code=503, detail="No available cookies")
+            
+        try:
+            L = InstaloaderPool().get_instance()
+            if not L:
+                raise HTTPException(status_code=503, detail="No available Instaloader instance")
                 
-                post = await retry_with_backoff(get_post)
+            # Cookie'yi yükle
+            L.context.load_session_from_file(cookie_data.get('username', ''), cookie_data.get('filename', ''))
+            
+            try:
+                post = instaloader.Post.from_shortcode(L.context, get_shortcode_from_url(url))
+                
+                # İndirme işlemi başarılı olursa
+                cookie_manager.mark_cookie_success(cookie_data)
+                return {
+                    'success': True,
+                    'type': 'video' if post.is_video else 'image',
+                    'url': post.video_url if post.is_video else post.url,
+                    'filename': post.filename
+                }
+                
+            except instaloader.exceptions.ConnectionException as e:
+                if 'Too many requests' in str(e):
+                    # Rate limit yedik, cookie'yi cooldown'a al ve diğerine geç
+                    logging.warning(f"Rate limit hit for cookie {cookie_data.get('username')}")
+                    cookie_manager.mark_cookie_rate_limited(cookie_data)
+                    continue
+                    
+                elif 'Login required' in str(e):
+                    # Cookie geçersiz, işaretle ve diğerine geç
+                    logging.error(f"Invalid cookie for {cookie_data.get('username')}")
+                    cookie_manager.mark_cookie_challenge(cookie_data)
+                    continue
+                    
+                else:
+                    # Diğer bağlantı hataları
+                    error = str(e)
+                    break
+                    
             except Exception as e:
-                logger.error(f"Error getting post: {str(e)}", extra=extra)
-                raise
-
-            if not post:
-                raise ValueError("Could not fetch post data")
-
-            # Get media URLs
-            media_urls = []
-            if post.is_video and post.video_url:
-                media_urls.append({
-                    'url': post.video_url,
-                    'type': 'video',
-                    'thumbnail': post.url
-                })
-            else:
-                media_urls.append({
-                    'url': post.url,
-                    'type': 'image'
-                })
-
-            if not media_urls:
-                raise ValueError("No media found in post")
-
-            # Mark cookie as successful
-            if current_cookie:
-                cookie_manager.mark_cookie_success({"id": current_cookie})
-
-            return {
-                'success': True,
-                'media_urls': media_urls,
-                'type': 'video' if post.is_video else 'image',
-                'caption': post.caption if post.caption else '',
-                'owner': post.owner_username,
-                'timestamp': post.date_local.isoformat()
-            }
-
-        result = await download_attempt()
-        return result
-
-    except instaloader.exceptions.ConnectionException as e:
-        logger.error(f"Connection error: {str(e)}", extra=extra)
-        if "429" in str(e) and current_cookie:  # Rate limit response
-            cookie_manager.mark_cookie_rate_limited({"id": current_cookie})
-        raise HTTPException(status_code=429, detail="Rate limited. Please try again later.")
-    
-    except instaloader.exceptions.LoginRequiredException as e:
-        logger.error(f"Login required: {str(e)}", extra=extra)
-        if current_cookie:
-            cookie_manager.mark_cookie_challenge({"id": current_cookie})
-        raise HTTPException(status_code=401, detail="Login required to access this content")
-
-    except Exception as e:
-        logger.error(f"Error downloading media: {str(e)}", extra=extra)
-        raise HTTPException(status_code=500, detail=f"Failed to download media: {str(e)}")
-    
-    finally:
-        if loader_instance:
-            await loader_pool.release_loader(loader_instance, success=False)
+                error = str(e)
+                break
+                
+        finally:
+            InstaloaderPool().release_instance(L)
+            
+    if error:
+        raise HTTPException(status_code=400, detail=f"Download failed: {error}")
 
 @app.post("/api/download")
 async def handle_download(request: Request, download_req: DownloadRequest):
