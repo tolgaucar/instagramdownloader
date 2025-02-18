@@ -1278,15 +1278,16 @@ async def download_media_from_instagram(url: str, client_id: str) -> dict:
             raise HTTPException(status_code=503, detail="No available cookies")
             
         try:
-            L = InstaloaderPool().get_instance()
-            if not L:
+            loader_instance = await loader_pool.get_loader()
+            if not loader_instance:
                 raise HTTPException(status_code=503, detail="No available Instaloader instance")
                 
             # Cookie'yi yükle
-            L.context.load_session_from_file(cookie_data.get('username', ''), cookie_data.get('filename', ''))
+            loader = loader_instance['loader']
+            loader.context.load_session_from_file(cookie_data.get('username', ''), cookie_data.get('filename', ''))
             
             try:
-                post = instaloader.Post.from_shortcode(L.context, get_shortcode_from_url(url))
+                post = instaloader.Post.from_shortcode(loader.context, get_shortcode_from_url(url))
                 
                 # İndirme işlemi başarılı olursa
                 cookie_manager.mark_cookie_success(cookie_data)
@@ -1320,7 +1321,8 @@ async def download_media_from_instagram(url: str, client_id: str) -> dict:
                 break
                 
         finally:
-            InstaloaderPool().release_instance(L)
+            if loader_instance:
+                await loader_pool.release_loader(loader_instance, success=(error is None))
             
     if error:
         raise HTTPException(status_code=400, detail=f"Download failed: {error}")
