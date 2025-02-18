@@ -233,16 +233,19 @@ def monitor_system_health():
         logging.error(f"Health monitoring failed: {str(e)}")
         return None
 
-# Celery beat schedule tanımlamaları
-celery.conf.beat_schedule = {
-    'cleanup-old-data': {
-        'task': 'tasks.cleanup_old_data',
-        'schedule': timedelta(hours=1),
+# Celery konfigürasyonu
+celery.conf.update(
+    beat_schedule={
+        'cleanup-old-data': {
+            'task': 'tasks.cleanup_old_data',
+            'schedule': timedelta(hours=1),
+        },
+        'monitor-system-health': {
+            'task': 'tasks.monitor_system_health',
+            'schedule': timedelta(minutes=5),
+        },
     },
-    'monitor-system-health': {
-        'task': 'tasks.monitor_system_health',
-        'schedule': timedelta(minutes=5),
-    },
-}
-
-celery.conf.timezone = 'UTC' 
+    beat_scheduler='redbeat.RedBeatScheduler',
+    redbeat_redis_url='redis://localhost:6379/0',
+    timezone='UTC'
+) 

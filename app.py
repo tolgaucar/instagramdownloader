@@ -2071,6 +2071,67 @@ async def privacy_page_with_lang(request: Request, lang_code: str):
         "current_lang": lang_code
     })
 
+def clear_instaloader_cache():
+    """Instaloader cache ve session dosyalarını temizle"""
+    try:
+        # Session dosyalarını temizle
+        session_paths = [
+            os.path.expanduser('~/.config/instaloader'),
+            '/tmp',
+            os.getcwd()
+        ]
+        
+        for path in session_paths:
+            if os.path.exists(path):
+                # Session dosyalarını bul ve sil
+                for file in os.listdir(path):
+                    if file.startswith('session-') or file.startswith('instaloader-'):
+                        try:
+                            os.remove(os.path.join(path, file))
+                            logging.info(f"Deleted session file: {file}")
+                        except Exception as e:
+                            logging.error(f"Error deleting session file {file}: {str(e)}")
+        
+        # Cookies dizinini temizle
+        cookies_dir = os.path.join(os.getcwd(), 'cookies')
+        if os.path.exists(cookies_dir):
+            for file in os.listdir(cookies_dir):
+                if file.endswith('.json'):
+                    try:
+                        os.remove(os.path.join(cookies_dir, file))
+                        logging.info(f"Deleted cookie file: {file}")
+                    except Exception as e:
+                        logging.error(f"Error deleting cookie file {file}: {str(e)}")
+        
+        # Cache dizinlerini temizle
+        for root, dirs, files in os.walk(os.getcwd()):
+            for dir in dirs:
+                if dir == '__pycache__':
+                    try:
+                        shutil.rmtree(os.path.join(root, dir))
+                        logging.info(f"Deleted cache directory: {dir}")
+                    except Exception as e:
+                        logging.error(f"Error deleting cache directory {dir}: {str(e)}")
+        
+        return True
+    except Exception as e:
+        logging.error(f"Error clearing Instaloader cache: {str(e)}")
+        return False
+
+@app.post("/api/admin/clear-cache")
+async def clear_cache_endpoint(
+    admin: Admin = Depends(get_current_admin_from_token)
+):
+    """Cache temizleme endpoint'i"""
+    try:
+        success = clear_instaloader_cache()
+        if success:
+            return {"status": "success", "message": "Cache cleared successfully"}
+        else:
+            raise HTTPException(status_code=500, detail="Failed to clear cache")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000) 
