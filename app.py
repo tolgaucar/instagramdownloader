@@ -1268,73 +1268,93 @@ async def retry_with_backoff(func, max_retries=5, initial_delay=10):
             await asyncio.sleep(delay)
 
 async def download_media_from_instagram(url: str, client_id: str) -> dict:
-    cookie_manager = CookieManager()
-    result = None
-    error = None
+    """Instagram'dan medya URL'lerini al"""
+    extra = {
+        'client_ip': client_id,
+        'url': url
+    }
+    logger.info(f"Download request received", extra=extra)
     
-    while True:  # Cookie rotasyonu için döngü
-        cookie_data = cookie_manager.get_next_cookie()
-        if not cookie_data:
-            raise HTTPException(status_code=503, detail="No available cookies")
-            
-        try:
-            loader_instance = await loader_pool.get_loader()
-            if not loader_instance:
-                raise HTTPException(status_code=503, detail="No available Instaloader instance")
-                
-            # Cookie'yi yükle
-            loader = loader_instance['loader']
-            
-            # Cookie'leri direkt olarak session'a ekle
-            for key, value in cookie_data.items():
-                loader.context._session.cookies.set(
-                    key, value, domain='.instagram.com', path='/'
-                )
-            
-            # User ID'yi ayarla
-            if 'ds_user_id' in cookie_data:
-                loader.context.user_id = cookie_data['ds_user_id']
-            
+    current_cookie = None
+    loader_instance = None
+    try:
+        # Get a loader from the pool
+        loader_instance = await loader_pool.get_loader()
+        loader = loader_instance['loader']
+        current_cookie = loader_instance['cookie_id']
+        
+        # Get the shortcode from the URL
+        shortcode = get_shortcode_from_url(url)
+        if not shortcode:
+            raise ValueError("Invalid Instagram URL")
+        
+        async def download_attempt():
+            post = None
             try:
-                post = instaloader.Post.from_shortcode(loader.context, get_shortcode_from_url(url))
+                # Post.from_shortcode'u sync olarak çağır
+                def get_post():
+                    return instaloader.Post.from_shortcode(loader.context, shortcode)
                 
-                # İndirme işlemi başarılı olursa
-                cookie_manager.mark_cookie_success(cookie_data)
-                return {
-                    'success': True,
-                    'type': 'video' if post.is_video else 'image',
-                    'url': post.video_url if post.is_video else post.url,
-                    'filename': post.filename
-                }
-                
-            except instaloader.exceptions.ConnectionException as e:
-                if 'Too many requests' in str(e):
-                    # Rate limit yedik, cookie'yi cooldown'a al ve diğerine geç
-                    logging.warning(f"Rate limit hit for cookie {cookie_data.get('username')}")
-                    cookie_manager.mark_cookie_rate_limited(cookie_data)
-                    continue
-                    
-                elif 'Login required' in str(e):
-                    # Cookie geçersiz, işaretle ve diğerine geç
-                    logging.error(f"Invalid cookie for {cookie_data.get('username')}")
-                    cookie_manager.mark_cookie_challenge(cookie_data)
-                    continue
-                    
-                else:
-                    # Diğer bağlantı hataları
-                    error = str(e)
-                    break
-                    
+                post = await retry_with_backoff(get_post)
             except Exception as e:
-                error = str(e)
-                break
-                
-        finally:
-            if loader_instance:
-                await loader_pool.release_loader(loader_instance, success=(error is None))
-            
-    if error:
-        raise HTTPException(status_code=400, detail=f"Download failed: {error}")
+                logger.error(f"Error getting post: {str(e)}", extra=extra)
+                raise
+
+            if not post:
+                raise ValueError("Could not fetch post data")
+
+            # Get media URLs
+            media_urls = []
+            if post.is_video and post.video_url:
+                media_urls.append({
+                    'url': post.video_url,
+                    'type': 'video',
+                    'thumbnail': post.url
+                })
+            else:
+                media_urls.append({
+                    'url': post.url,
+                    'type': 'image'
+                })
+
+            if not media_urls:
+                raise ValueError("No media found in post")
+
+            # Mark cookie as successful
+            if current_cookie:
+                cookie_manager.mark_cookie_success({"id": current_cookie})
+
+            return {
+                'success': True,
+                'media_urls': media_urls,
+                'type': 'video' if post.is_video else 'image',
+                'caption': post.caption if post.caption else '',
+                'owner': post.owner_username,
+                'timestamp': post.date_local.isoformat()
+            }
+
+        result = await download_attempt()
+        return result
+
+    except instaloader.exceptions.ConnectionException as e:
+        logger.error(f"Connection error: {str(e)}", extra=extra)
+        if "429" in str(e) and current_cookie:  # Rate limit response
+            cookie_manager.mark_cookie_rate_limited({"id": current_cookie})
+        raise HTTPException(status_code=429, detail="Rate limited. Please try again later.")
+    
+    except instaloader.exceptions.LoginRequiredException as e:
+        logger.error(f"Login required: {str(e)}", extra=extra)
+        if current_cookie:
+            cookie_manager.mark_cookie_challenge({"id": current_cookie})
+        raise HTTPException(status_code=401, detail="Login required to access this content")
+
+    except Exception as e:
+        logger.error(f"Error downloading media: {str(e)}", extra=extra)
+        raise HTTPException(status_code=500, detail=f"Failed to download media: {str(e)}")
+    
+    finally:
+        if loader_instance:
+            await loader_pool.release_loader(loader_instance, success=False)
 
 @app.post("/api/download")
 async def handle_download(request: Request, download_req: DownloadRequest):
@@ -1530,27 +1550,6 @@ async def download_media(request: Request):
         if not media_url:
             raise HTTPException(status_code=400, detail='Media URL is required')
 
-        # Direkt medya URL'si kontrolü
-        if 'cdninstagram.com' in media_url or 'fbcdn.net' in media_url:
-            async with aiohttp.ClientSession() as session:
-                async with session.get(media_url) as response:
-                    if response.status != 200:
-                        raise HTTPException(status_code=400, detail='Failed to download media')
-                    
-                    content_type = response.headers.get('content-type', '')
-                    extension = 'mp4' if 'video' in content_type else 'jpg'
-                    filename = f'instagram_media_{int(time.time())}.{extension}'
-                    
-                    content = await response.read()
-                    return StreamingResponse(
-                        io.BytesIO(content),
-                        media_type=content_type,
-                        headers={
-                            'Content-Disposition': f'attachment; filename="{filename}"',
-                            'Content-Type': content_type
-                        }
-                    )
-
         # Instagram URL kontrolü
         if 'instagram.com' in media_url:
             # Instagram API'sini kullan
@@ -1561,75 +1560,93 @@ async def download_media(request: Request):
                 raise HTTPException(status_code=400, detail=result.get('error', 'Failed to process Instagram URL'))
             
             media_url = result['media_urls'][0]['url']
-            is_video = result['media_urls'][0].get('type') == 'video'
-
-            # Eğer video değilse ve mp3 dönüşümü istenmişse hata ver
-            if not is_video and format_type == 'mp3':
-                raise HTTPException(status_code=400, detail='MP3 dönüşümü sadece video içeriği için geçerlidir')
-
-            # MP3 dönüşümü için
-            if format_type == 'mp3':
-                temp_dir = tempfile.mkdtemp()
-                try:
-                    # Medya dosyasını indir
-                    async with aiohttp.ClientSession() as session:
-                        async with session.get(media_url) as response:
-                            if response.status != 200:
-                                raise HTTPException(status_code=400, detail='Failed to download media')
-
+            media_type = result['type']  # Preview'dan gelen tür bilgisini kullan
+            
+            # Resim ise ve ses dönüşümü isteniyorsa hata ver
+            if media_type == 'image' and format_type == 'sound':
+                raise HTTPException(status_code=400, detail='Cannot convert image to sound. This post contains an image.')
+            
+            # Resim dosyası ise direkt indir
+            if media_type == 'image':
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(media_url) as response:
+                        if response.status != 200:
+                            raise HTTPException(status_code=400, detail='Failed to download media')
+                        
+                        content = await response.read()
+                        return StreamingResponse(
+                            io.BytesIO(content),
+                            media_type='image/jpeg',
+                            headers={
+                                'Content-Disposition': f'attachment; filename="instagram_image_{int(time.time())}.jpg"',
+                                'Content-Type': 'image/jpeg'
+                            }
+                        )
+            
+            # Video dosyası ise format kontrolü yap
+            elif media_type == 'video':
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(media_url) as response:
+                        if response.status != 200:
+                            raise HTTPException(status_code=400, detail='Failed to download media')
+                        
+                        temp_dir = tempfile.mkdtemp()
+                        try:
                             temp_file = os.path.join(temp_dir, f'temp.mp4')
                             with open(temp_file, 'wb') as f:
                                 f.write(await response.read())
-
-                            # MP3'e dönüştür
-                            try:
+                            
+                            if format_type == 'sound':
                                 final_file = convert_to_mp3(temp_file)
                                 content_type = 'audio/mpeg'
+                                extension = 'mp3'
+                            else:
+                                final_file = temp_file
+                                content_type = 'video/mp4'
+                                extension = 'mp4'
+                            
+                            with open(final_file, 'rb') as f:
+                                content = f.read()
+                            
+                            return StreamingResponse(
+                                io.BytesIO(content),
+                                media_type=content_type,
+                                headers={
+                                    'Content-Disposition': f'attachment; filename="instagram_media_{int(time.time())}.{extension}"',
+                                    'Content-Type': content_type
+                                }
+                            )
+                        finally:
+                            shutil.rmtree(temp_dir, ignore_errors=True)
 
-                                # Dosyayı oku ve stream olarak dön
-                                with open(final_file, 'rb') as f:
-                                    content = f.read()
+        # Direkt medya URL'si
+        async with aiohttp.ClientSession() as session:
+            async with session.get(media_url) as response:
+                if response.status != 200:
+                    raise HTTPException(status_code=400, detail='Failed to download media')
+                
+                content_type = response.headers.get('content-type', '')
+                is_video = 'video' in content_type
+                
+                if not is_video and format_type == 'sound':
+                    raise HTTPException(status_code=400, detail='Cannot convert image to sound')
+                
+                extension = 'mp4' if is_video else 'jpg'
+                filename = f'instagram_media_{int(time.time())}.{extension}'
+                
+                content = await response.read()
+                return StreamingResponse(
+                    io.BytesIO(content),
+                    media_type=content_type,
+                    headers={
+                        'Content-Disposition': f'attachment; filename="{filename}"',
+                        'Content-Type': content_type
+                    }
+                )
 
-                                return StreamingResponse(
-                                    io.BytesIO(content),
-                                    media_type=content_type,
-                                    headers={
-                                        'Content-Disposition': f'attachment; filename="instagram_sound_{int(time.time())}.mp3"',
-                                        'Content-Type': content_type
-                                    }
-                                )
-                            except Exception as e:
-                                logger.error(f"Format conversion error: {str(e)}")
-                                raise HTTPException(status_code=500, detail=f"Format dönüşümü başarısız: {str(e)}")
-                finally:
-                    # Geçici dosyaları temizle
-                    shutil.rmtree(temp_dir, ignore_errors=True)
-
-            # Video indirme için basit response
-            async with aiohttp.ClientSession() as session:
-                async with session.get(media_url) as response:
-                    if response.status != 200:
-                        raise HTTPException(status_code=400, detail='Failed to download media')
-                    
-                    content_type = response.headers.get('content-type', '')
-                    extension = 'mp4' if 'video' in content_type else 'jpg'
-                    filename = f'instagram_media_{int(time.time())}.{extension}'
-                    
-                    content = await response.read()
-                    return StreamingResponse(
-                        io.BytesIO(content),
-                        media_type=content_type,
-                        headers={
-                            'Content-Disposition': f'attachment; filename="{filename}"',
-                            'Content-Type': content_type
-                        }
-                    )
-
-    except HTTPException as he:
-        raise he
     except Exception as e:
-        logger.error(f"Media download error: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Failed to download media: {str(e)}")
+        logger.error(f"Download error: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/stories/{username}")
 async def get_user_stories(username: str):

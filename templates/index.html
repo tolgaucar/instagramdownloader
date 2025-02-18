@@ -445,12 +445,19 @@
 					// Format seçme bölümünü sadece video içeriği için göster
 					const formatSection = document.getElementById('format-section');
 					currentMediaType = preview.type;
+					
+					// Format seçimini sıfırla
+					selectedFormat = 'video';  // Varsayılan format
+					
 					if (preview.type === 'video') {
 						formatSection.classList.remove('hidden');
-						selectFormat('video'); // Varsayılan format
+						// Video için format butonlarını aktif et
+						Object.values(formatButtons).forEach(button => button.disabled = false);
 					} else {
 						formatSection.classList.add('hidden');
-						selectedFormat = 'sound';
+						// Resim için format seçimini devre dışı bırak
+						selectedFormat = 'original';
+						Object.values(formatButtons).forEach(button => button.disabled = true);
 					}
 					
 					// Resmi yükle
@@ -528,41 +535,24 @@
 							return false;
 						};
 						
-						const finalFormat = selectedFormat;
+						// Format kontrolü
+						const finalFormat = currentMediaType === 'video' ? selectedFormat : 'original';
 						const downloadUrl = `/api/download-media?url=${encodeURIComponent(lastUsedUrl)}&format=${finalFormat}`;
 						
-						if (finalFormat === 'video') {
+						if (currentMediaType === 'video') {
 							// Video indirme başlatılmadan önce kısa bir gecikme ekle
 							await new Promise(resolve => setTimeout(resolve, 1500));
 							window.location.href = downloadUrl;
 						} else {
-							try {
-								showLoading(translations.converting_loading);
-								const response = await fetch(downloadUrl);
-								if (!response.ok) throw new Error('İndirme başarısız');
-								
-								const blob = await response.blob();
-								const blobUrl = window.URL.createObjectURL(blob);
-								const a = document.createElement('a');
-								a.href = blobUrl;
-								a.download = `instagram_sound_${Date.now()}.mp3`;
-								document.body.appendChild(a);
-								a.click();
-								window.URL.revokeObjectURL(blobUrl);
-								document.body.removeChild(a);
-							} catch (error) {
-								showError(error.message || translations.error_text);
-								if (downloadSoundBtn) {
-									downloadSoundBtn.disabled = false;
-								}
-							}
+							// Resim için direkt indirme
+							window.location.href = downloadUrl;
 						}
 						return;
 					}
 
 					// Önizleme gösterilmemişse, önizlemeyi göster
 					showLoading(translations.download_loading);
-					lastUsedUrl = url; // URL'yi sakla
+					lastUsedUrl = url;
 					
 					if (url.includes('/stories/')) {
 						const username = extractUsername(url);
