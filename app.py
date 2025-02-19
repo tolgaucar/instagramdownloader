@@ -112,11 +112,12 @@ def setup_logging():
 logger = setup_logging()
 
 # SSL context oluştur
-ssl_context = ssl.create_default_context(cafile=certifi.where())
-ssl_context.verify_mode = ssl.CERT_REQUIRED
+ssl_context = ssl.create_default_context()
+ssl_context.check_hostname = False
+ssl_context.verify_mode = ssl.CERT_NONE
 
 # aiohttp için SSL context ayarları
-connector = aiohttp.TCPConnector(ssl=ssl_context)
+connector = aiohttp.TCPConnector(ssl=False)
 session = aiohttp.ClientSession(connector=connector)
 
 # Request modeli
@@ -1294,7 +1295,7 @@ async def download_media_from_instagram(url: str, client_id: str) -> dict:
         current_cookie = loader_instance['cookie_id']
         
         # SSL doğrulama ayarlarını güncelle
-        loader.context._session.verify = certifi.where()
+        loader.context._session.verify = False
         
         # Get the shortcode from the URL
         shortcode = get_shortcode_from_url(url)

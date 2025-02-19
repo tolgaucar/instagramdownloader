@@ -173,18 +173,18 @@ class InstagramCookieHarvester:
         """Selenium WebDriver'ı hazırla"""
         options = webdriver.ChromeOptions()
         
-        # Temel ayarlar
-        options.add_argument('--no-sandbox')
-        options.add_argument('--disable-dev-shm-usage')
-        options.add_argument('--window-size=1920,1080')
-        options.add_argument('--start-maximized')
-        
-        # SSL ve güvenlik ayarları
+        # SSL sertifika hatası için ayarlar
         options.add_argument('--ignore-certificate-errors')
         options.add_argument('--ignore-ssl-errors')
         options.add_argument('--allow-insecure-localhost')
         options.add_argument('--disable-web-security')
         options.add_argument('--allow-running-insecure-content')
+        
+        # Temel ayarlar
+        options.add_argument('--no-sandbox')
+        options.add_argument('--disable-dev-shm-usage')
+        options.add_argument('--window-size=1920,1080')
+        options.add_argument('--start-maximized')
         
         # User agent
         options.add_argument('--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36')
@@ -260,7 +260,15 @@ class InstagramCookieHarvester:
         driver = None
         max_retries = len(self.proxies)
         successful_proxy = None
-        required_cookies = {'sessionid', 'ds_user_id', 'csrftoken'}  # Gerekli cookie'ler
+        required_cookies = {'sessionid', 'ds_user_id', 'csrftoken'}
+        
+        # SSL doğrulama ayarları
+        ssl_context = ssl.create_default_context()
+        ssl_context.check_hostname = False
+        ssl_context.verify_mode = ssl.CERT_NONE
+        
+        # Requests session ayarları
+        self.session.verify = False
         
         for attempt in range(max_retries):
             try:
