@@ -116,6 +116,9 @@ ssl_context = ssl.create_default_context()
 ssl_context.check_hostname = False
 ssl_context.verify_mode = ssl.CERT_NONE
 
+# SSL uyarılarını kapat
+requests.packages.urllib3.disable_warnings(requests.packages.urllib3.exceptions.InsecureRequestWarning)
+
 # aiohttp için SSL context ayarları
 connector = aiohttp.TCPConnector(ssl=False)
 session = aiohttp.ClientSession(connector=connector)
@@ -1248,6 +1251,9 @@ L = instaloader.Instaloader(
     download_videos=True,
     compress_json=False
 )
+
+# SSL ayarlarını güncelle
+L.context._session.verify = False
 
 async def retry_with_backoff(func, max_retries=5, initial_delay=10):
     """Exponential backoff ile retry mekanizması"""

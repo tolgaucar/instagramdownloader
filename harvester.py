@@ -38,13 +38,16 @@ class InstagramCookieHarvester:
         # Account numaralarını takip et
         self.next_account_number = self.get_next_account_number()
         
-        # SSL context ayarları
-        self.ssl_context = ssl.create_default_context(cafile=certifi.where())
-        self.ssl_context.verify_mode = ssl.CERT_REQUIRED
+        # SSL doğrulama ayarlarını devre dışı bırak
+        self.ssl_context = ssl.create_default_context()
+        self.ssl_context.check_hostname = False
+        self.ssl_context.verify_mode = ssl.CERT_NONE
         
         # Requests session ayarları
         self.session = requests.Session()
-        self.session.verify = certifi.where()
+        self.session.verify = False
+        # SSL uyarılarını kapat
+        requests.packages.urllib3.disable_warnings(requests.packages.urllib3.exceptions.InsecureRequestWarning)
         
     def setup_logging(self):
         """Logging konfigürasyonu"""
@@ -179,6 +182,8 @@ class InstagramCookieHarvester:
         options.add_argument('--allow-insecure-localhost')
         options.add_argument('--disable-web-security')
         options.add_argument('--allow-running-insecure-content')
+        options.add_argument('--ignore-urlfetcher-cert-requests')
+        options.add_argument('--ignore-certificate-errors-spki-list')
         
         # Temel ayarlar
         options.add_argument('--no-sandbox')
