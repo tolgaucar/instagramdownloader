@@ -40,6 +40,8 @@ import jwt
 import tempfile
 import subprocess
 import shutil
+import ssl
+import certifi
 
 # Logging konfigürasyonu
 def setup_logging():
@@ -108,6 +110,14 @@ def setup_logging():
 
 # Logger'ı oluştur
 logger = setup_logging()
+
+# SSL context oluştur
+ssl_context = ssl.create_default_context(cafile=certifi.where())
+ssl_context.verify_mode = ssl.CERT_REQUIRED
+
+# aiohttp için SSL context ayarları
+connector = aiohttp.TCPConnector(ssl=ssl_context)
+session = aiohttp.ClientSession(connector=connector)
 
 # Request modeli
 class DownloadRequest(BaseModel):
@@ -1283,6 +1293,9 @@ async def download_media_from_instagram(url: str, client_id: str) -> dict:
         loader = loader_instance['loader']
         current_cookie = loader_instance['cookie_id']
         
+        # SSL doğrulama ayarlarını güncelle
+        loader.context._session.verify = certifi.where()
+        
         # Get the shortcode from the URL
         shortcode = get_shortcode_from_url(url)
         if not shortcode:
@@ -1559,12 +1572,17 @@ async def download_media(request: Request):
             if not result.get('success'):
                 raise HTTPException(status_code=400, detail=result.get('error', 'Failed to process Instagram URL'))
             
-            media_url = result['media_urls'][0]['url']
-            media_type = result['type']  # Preview'dan gelen tür bilgisini kullan
+            # Post türünü kontrol et
+            media_type = result.get('type')
+            if not media_type:
+                # Eğer type belirtilmemişse, URL'den tahmin et
+                media_type = 'video' if '/reel/' in media_url or '/tv/' in media_url else 'image'
             
             # Resim ise ve ses dönüşümü isteniyorsa hata ver
             if media_type == 'image' and format_type == 'sound':
                 raise HTTPException(status_code=400, detail='Cannot convert image to sound. This post contains an image.')
+            
+            media_url = result['media_urls'][0]['url']
             
             # Resim dosyası ise direkt indir
             if media_type == 'image':

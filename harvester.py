@@ -17,6 +17,9 @@ import traceback
 from pathlib import Path
 import base64
 import requests
+from selenium.webdriver.chrome.options import Options
+import certifi
+import ssl
 
 class InstagramCookieHarvester:
     def __init__(self):
@@ -34,6 +37,14 @@ class InstagramCookieHarvester:
         
         # Account numaralarını takip et
         self.next_account_number = self.get_next_account_number()
+        
+        # SSL context ayarları
+        self.ssl_context = ssl.create_default_context(cafile=certifi.where())
+        self.ssl_context.verify_mode = ssl.CERT_REQUIRED
+        
+        # Requests session ayarları
+        self.session = requests.Session()
+        self.session.verify = certifi.where()
         
     def setup_logging(self):
         """Logging konfigürasyonu"""
@@ -123,20 +134,20 @@ class InstagramCookieHarvester:
             }
             
             # Test için önce basit bir site dene
-            response = requests.get(
+            response = self.session.get(
                 'http://www.google.com',
                 proxies=proxies,
                 timeout=10,
-                verify=False
+                verify=certifi.where()
             )
             
             if response.status_code == 200:
                 # Şimdi Instagram'ı dene
-                response = requests.get(
+                response = self.session.get(
                     'https://www.instagram.com',
                     proxies=proxies,
                     timeout=10,
-                    verify=False
+                    verify=certifi.where()
                 )
                 return response.status_code == 200
                 
@@ -589,8 +600,7 @@ class InstagramCookieHarvester:
             # Cookie'leri yükle
             driver.get('https://www.instagram.com/')
             for name, value in account_data['cookies'].items():
-                if name and value:  # Boş cookie'leri atla
-                    driver.add_cookie({'name': name, 'value': value})
+                driver.add_cookie({'name': name, 'value': value})
             
             # Sayfayı yenile ve kontrol et
             driver.refresh()
@@ -624,7 +634,7 @@ class InstagramCookieHarvester:
                     driver.quit()
                 except:
                     pass
-
+                    
     async def harvest_cookies(self, accounts):
         """Cookie'leri doğrula veya yenile"""
         valid_cookies = []
